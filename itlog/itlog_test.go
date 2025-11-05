@@ -446,32 +446,12 @@ func TestMsgTrimmingSpaces(t *testing.T) {
 	}
 }
 
-func BenchmarkLoggerDebugSimple(b *testing.B) {
-	l := New(LevelDebug)
-	for i := 0; i < b.N; i++ {
-		e := l.Debug()
-		if e != nil {
-			e.Msg("debug message")
-		}
-	}
-}
-
 func BenchmarkLoggerInfoSimple(b *testing.B) {
 	l := New(LevelInfo)
 	for i := 0; i < b.N; i++ {
 		e := l.Info()
 		if e != nil {
 			e.Msg("info message")
-		}
-	}
-}
-
-func BenchmarkLoggerWarnSimple(b *testing.B) {
-	l := New(LevelWarn)
-	for i := 0; i < b.N; i++ {
-		e := l.Warn()
-		if e != nil {
-			e.Msg("warn message")
 		}
 	}
 }
