@@ -27,7 +27,6 @@ Design Decisions:
     benefit is that this simplifies the implementation further.
 
     TODO: Add a log parser.
-    TODO: Add benchmarks.
 */
 package itlog
 
@@ -67,45 +66,6 @@ const (
 	ComponentSeparator       = '|'
 	ContextKeyValueSeparator = '='
 )
-
-func appendAndEscape(dst *[]byte, src string) {
-	for offset := 0; offset < len(src); offset += 1 {
-		ch := src[offset]
-		if ch == '=' || ch == ComponentSeparator {
-			*dst = append(*dst, '\\')
-		}
-		*dst = append(*dst, ch)
-	}
-}
-
-// Primitive
-// With* functions append context to the logger.Buffer to be inherited by all of its child events.
-func (logger *Logger) WithData(key, val string) *Logger {
-	if logger == nil {
-		return nil
-	}
-	dst := New(logger.Level)
-	dst.Buffer = append(dst.Buffer, logger.Buffer...)
-	appendAndEscape(&dst.Buffer, key)
-	dst.Buffer = append(dst.Buffer, '=')
-	appendAndEscape(&dst.Buffer, val)
-	dst.Buffer = append(dst.Buffer, ComponentSeparator)
-	assert(dst.Buffer[0] != ComponentSeparator, "Logger's inheritable context is appended after ComponentSeparator so it must not start with one.")
-	return dst
-}
-
-// Primitive
-// Data appends a key-value pair to the Event context.
-func (event *Event) Data(key, val string) *Event {
-	if event == nil {
-		return nil
-	}
-	appendAndEscape(&event.Buffer, key)
-	event.Buffer = append(event.Buffer, '=')
-	appendAndEscape(&event.Buffer, val)
-	event.Buffer = append(event.Buffer, ComponentSeparator)
-	return event
-}
 
 func New(level int) *Logger {
 	if level >= LevelDisabled || Writer == nil {
@@ -179,6 +139,32 @@ func (event *Event) Done(msg string) {
 	event.Msg("done  " + msg)
 }
 
+func appendAndEscape(dst *[]byte, src string) {
+	for offset := 0; offset < len(src); offset += 1 {
+		ch := src[offset]
+		if ch == '=' || ch == ComponentSeparator {
+			*dst = append(*dst, '\\')
+		}
+		*dst = append(*dst, ch)
+	}
+}
+
+// Primitive
+// With* functions append context to the logger.Buffer to be inherited by all of its child events.
+func (logger *Logger) WithData(key, val string) *Logger {
+	if logger == nil {
+		return nil
+	}
+	dst := New(logger.Level)
+	dst.Buffer = append(dst.Buffer, logger.Buffer...)
+	appendAndEscape(&dst.Buffer, key)
+	dst.Buffer = append(dst.Buffer, '=')
+	appendAndEscape(&dst.Buffer, val)
+	dst.Buffer = append(dst.Buffer, ComponentSeparator)
+	assert(dst.Buffer[0] != ComponentSeparator, "Logger's inheritable context is appended after ComponentSeparator so it must not start with one.")
+	return dst
+}
+
 func (logger *Logger) WithStr(key, val string) *Logger {
 	if logger == nil {
 		return nil
@@ -240,6 +226,19 @@ func (event *Event) Errs(vals ...error) *Event {
 			event = event.Data("error", v.Error())
 		}
 	}
+	return event
+}
+
+// Primitive
+// Data appends a key-value pair to the Event context.
+func (event *Event) Data(key, val string) *Event {
+	if event == nil {
+		return nil
+	}
+	appendAndEscape(&event.Buffer, key)
+	event.Buffer = append(event.Buffer, '=')
+	appendAndEscape(&event.Buffer, val)
+	event.Buffer = append(event.Buffer, ComponentSeparator)
 	return event
 }
 
@@ -358,7 +357,7 @@ func (event *Event) Msg(msg string) {
 	if msg == "" {
 		msg = "<empty>"
 	}
-	defer destroy_event(event)
+	defer DestroyEvent(event)
 	start := HeaderCapacity - MessageCapacity
 	end := HeaderCapacity
 	assert(event.Buffer[start-1] == ComponentSeparator, "Message starts after component separator")
@@ -395,7 +394,7 @@ func (event *Event) Msg(msg string) {
 	}(), "Header does not contain null bytes.")
 }
 
-func new_event(logger *Logger, level string) *Event {
+func NewEvent(logger *Logger, level string) *Event {
 	assert(len(level) == LevelMaxWordLength, "Level string is equal to LevelMaxWordLength")
 	if logger == nil {
 		return nil
@@ -449,7 +448,7 @@ func new_event(logger *Logger, level string) *Event {
 	return event
 }
 
-func destroy_event(event *Event) {
+func DestroyEvent(event *Event) {
 	if cap(event.Buffer) > DefaultBufferCapacity {
 		return
 	}
