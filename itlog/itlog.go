@@ -1,16 +1,11 @@
 /*
 itlog is a performant, zero-allocation, logger (~500 SLoC) heavily inspired by ZeroLog (~16k SLoC). FWIW, this code was written AI-free :)
 
-Advantages over Zerolog:
-
-1. High-performance for human-readble output.
-2. 30x smaller footprint
-
 Design Decisions:
 
  1. Format
 
-    |......Header.....|.Body..\n
+    .......Header.....|.Body..\n
     time|level|message|context\n
 
     The format is split into the Header and Body.
@@ -150,7 +145,7 @@ func appendAndEscape(dst *[]byte, src string) {
 }
 
 // Primitive
-// With* functions append context to the logger.Buffer to be inherited by all of its child events.
+// With* functions create a deep copy of logger and appends context to the Buffer.
 func (logger *Logger) WithData(key, val string) *Logger {
 	if logger == nil {
 		return nil
