@@ -89,7 +89,7 @@ func (logger *Logger) WithData(key, val string) *Logger {
 	dst.Buffer = append(dst.Buffer, '=')
 	appendAndEscape(&dst.Buffer, val)
 	dst.Buffer = append(dst.Buffer, ComponentSeparator)
-	assert(dst.Buffer[0] != ComponentSeparator, "Logger's inheritable context does not start with ComponentSeparator.")
+	assert(dst.Buffer[0] != ComponentSeparator, "Logger's inheritable context is appended after ComponentSeparator so it must not start with one.")
 	return dst
 }
 
