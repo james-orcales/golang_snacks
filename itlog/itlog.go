@@ -50,12 +50,13 @@ const (
 	HeaderCapacity        = TimestampCapacity + 1 + LevelCapacity + 1 + MessageCapacity
 	TimestampCapacity     = len(time.RFC3339) - len("07:00") // hardcoded to always be in UTC
 	LevelCapacity         = LevelMaxWordLength
+	// You can get a 10ns/op improvement if you reduce this down to 50 characters but it's not worth it for such a short message window.
+	MessageCapacity = 80
 	// This should cover most cases. Note that these buffers can still grow when the need arises, in which case, they don't get returned to the
 	// pool but are instead left for the garbage collector.
-	MessageCapacity = 100
-	ContextCapacity = 400
+	ContextCapacity = 300
 
-	LevelMaxWordLength = 5
+	LevelMaxWordLength = 3
 	LevelDebug         = -10
 	LevelInfo          = 0
 	LevelWarn          = 10
@@ -120,7 +121,7 @@ func (logger *Logger) Debug() *Event {
 	if logger == nil || logger.Level > LevelDebug {
 		return nil
 	} else {
-		return new_event(logger, "DEBUG")
+		return NewEvent(logger, "DBG")
 	}
 }
 
@@ -128,7 +129,7 @@ func (logger *Logger) Info() *Event {
 	if logger == nil || logger.Level > LevelInfo {
 		return nil
 	} else {
-		return new_event(logger, "INFO ")
+		return NewEvent(logger, "INF")
 	}
 }
 
@@ -136,7 +137,7 @@ func (logger *Logger) Warn() *Event {
 	if logger == nil || logger.Level > LevelWarn {
 		return nil
 	} else {
-		return new_event(logger, "WARN ")
+		return NewEvent(logger, "WRN")
 	}
 }
 
@@ -146,7 +147,7 @@ func (logger *Logger) Error(errs ...error) *Event {
 	if logger == nil || logger.Level > LevelError {
 		return nil
 	}
-	event := new_event(logger, "ERROR")
+	event := NewEvent(logger, "ERR")
 	switch len(errs) {
 	case 0:
 		noop()

@@ -58,7 +58,7 @@ func TestWithDataAndDataAndEscaping(t *testing.T) {
 		t.Fatalf("expected escaped key/value in logger buffer, got %q", s)
 	}
 
-	e := new_event(l2, "INFO ")
+	e := new_event(l2, "INF")
 	e = e.Data("k|", "v=")
 	withWriter(&bytes.Buffer{}, func() {
 		e.Msg("")
@@ -138,7 +138,7 @@ func TestMsgEmptyAndTruncation(t *testing.T) {
 	l := New(LevelInfo)
 	buf := &bytes.Buffer{}
 	withWriter(buf, func() {
-		e := new_event(l, "INFO ")
+		e := new_event(l, "INF")
 		e.Msg("") // should set "<empty>"
 	})
 	out := buf.String()
@@ -152,7 +152,7 @@ func TestMsgEmptyAndTruncation(t *testing.T) {
 	long := strings.Repeat("X", MessageCapacity+20)
 	buf.Reset()
 	withWriter(buf, func() {
-		e := new_event(l, "INFO ")
+		e := new_event(l, "INF")
 		e.Msg(long)
 	})
 	line = strings.TrimRight(buf.String(), "\n")
@@ -169,7 +169,7 @@ func TestMsgWritesNewlineAndHeaderLayout(t *testing.T) {
 	l := New(LevelInfo)
 	buf := &bytes.Buffer{}
 	withWriter(buf, func() {
-		e := new_event(l, "INFO ")
+		e := new_event(l, "INF")
 		e.Str("k", "v")
 		e.Msg("hi")
 	})
@@ -195,7 +195,7 @@ func TestNumberAndUint64AndBool(t *testing.T) {
 	l := New(LevelInfo)
 	buf := &bytes.Buffer{}
 	withWriter(buf, func() {
-		e := new_event(l, "INFO ")
+		e := new_event(l, "INF")
 		e.Int("i", 42)
 		e.Uint64("u", 9999999999)
 		e.Bool("b", true)
@@ -217,7 +217,7 @@ func TestListAndMultipleDataCalls(t *testing.T) {
 	l := New(LevelInfo)
 	buf := &bytes.Buffer{}
 	withWriter(buf, func() {
-		e := new_event(l, "INFO ")
+		e := new_event(l, "INF")
 		e.List("k", "a", "b", "c")
 		e.Msg("list")
 	})
@@ -305,7 +305,7 @@ func TestEventMultipleDataCallsOrder(t *testing.T) {
 	l := New(LevelInfo)
 	buf := &bytes.Buffer{}
 	withWriter(buf, func() {
-		e := new_event(l, "INFO ")
+		e := new_event(l, "INF")
 		e.Str("a", "1").Int("b", 2).Bool("c", true)
 		e.Msg("multi")
 	})
@@ -322,7 +322,7 @@ func TestDataWithEmptyKeyAndValue(t *testing.T) {
 	l := New(LevelInfo)
 	buf := &bytes.Buffer{}
 	withWriter(buf, func() {
-		e := new_event(l, "INFO ")
+		e := new_event(l, "INF")
 		e.Str("", "")
 		e.Msg("empty")
 	})
@@ -336,7 +336,7 @@ func TestEventListWithEmptySlice(t *testing.T) {
 	l := New(LevelInfo)
 	buf := &bytes.Buffer{}
 	withWriter(buf, func() {
-		e := new_event(l, "INFO ")
+		e := new_event(l, "INF")
 		e.List("k")
 		e.Msg("emptylist")
 	})
@@ -350,7 +350,7 @@ func TestMsgWithEmptyString(t *testing.T) {
 	l := New(LevelInfo)
 	buf := &bytes.Buffer{}
 	withWriter(buf, func() {
-		e := new_event(l, "INFO ")
+		e := new_event(l, "INF")
 		// do not call Msg()
 		e.Msg("")
 	})
@@ -364,7 +364,7 @@ func TestOverwriteMsgMultipleTimes(t *testing.T) {
 	l := New(LevelInfo)
 	buf := &bytes.Buffer{}
 	withWriter(buf, func() {
-		e := new_event(l, "INFO ")
+		e := new_event(l, "INF")
 		e.Msg("first")
 		e.Msg("second")
 	})
@@ -393,7 +393,7 @@ func TestEventNumberInt64Edge(t *testing.T) {
 	l := New(LevelInfo)
 	buf := &bytes.Buffer{}
 	withWriter(buf, func() {
-		e := new_event(l, "INFO ")
+		e := new_event(l, "INF")
 		e.Number("min", int64(-9223372036854775808))
 		e.Number("max", int64(9223372036854775807))
 		e.Msg("int64")
@@ -408,7 +408,7 @@ func TestEventUint64Edge(t *testing.T) {
 	l := New(LevelInfo)
 	buf := &bytes.Buffer{}
 	withWriter(buf, func() {
-		e := new_event(l, "INFO ")
+		e := new_event(l, "INF")
 		e.Uint64("zero", 0)
 		e.Uint64("max", ^uint64(0))
 		e.Msg("uint64")
@@ -436,7 +436,7 @@ func TestMsgTrimmingSpaces(t *testing.T) {
 	l := New(LevelInfo)
 	buf := &bytes.Buffer{}
 	withWriter(buf, func() {
-		e := new_event(l, "INFO ")
+		e := new_event(l, "INF")
 		longMsg := "short"
 		e.Msg(longMsg)
 	})
