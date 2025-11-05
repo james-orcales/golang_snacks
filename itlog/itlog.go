@@ -371,7 +371,7 @@ func (event *Event) Msg(msg string) {
 
 	event.Buffer = append(event.Buffer, '\n')
 	if _, err := Writer.Write(event.Buffer); err != nil {
-		os.Stderr.Write(stringToBytes("WRITE_ERROR|could not write log event"))
+		os.Stderr.Write(stringToBytesUnsafe("WRITE_ERROR|could not write log event"))
 		return
 	}
 
@@ -427,7 +427,7 @@ func new_event(logger *Logger, level string) *Event {
 	event.Buffer = append(event.Buffer, 'Z', ComponentSeparator)
 	assert(len(event.Buffer) == TimestampCapacity+1, "Wrote exactly N bytes for Timestamp+ComponentSeparator.")
 
-	event.Buffer = append(event.Buffer, stringToBytes(level)...)
+	event.Buffer = append(event.Buffer, stringToBytesUnsafe(level)...)
 	assert(len(event.Buffer) == TimestampCapacity+1+LevelCapacity, "Wrote exactly N bytes for Level.")
 	event.Buffer = append(event.Buffer, ComponentSeparator)
 
@@ -490,11 +490,11 @@ func sometimes(cond bool, msg string) {
 
 func assert(cond bool, msg string) {
 	if !cond && !DISABLE_ASSERTIONS {
-		os.Stderr.Write(stringToBytes("assertion failed: " + msg))
+		os.Stderr.Write(stringToBytesUnsafe("assertion failed: " + msg))
 		os.Exit(1)
 	}
 }
 
-func stringToBytes(s string) []byte {
+func stringToBytesUnsafe(s string) []byte {
 	return unsafe.Slice(unsafe.StringData(s), len(s))
 }
