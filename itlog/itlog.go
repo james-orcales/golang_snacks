@@ -27,6 +27,7 @@ Design Decisions:
     benefit is that this simplifies the implementation further.
 
     TODO: Add a log parser.
+    TODO: Add benchmarks.
 */
 package itlog
 
@@ -44,6 +45,7 @@ import (
 var Writer io.Writer = os.Stdout
 
 const (
+	DISABLE_ASSERTIONS    = false
 	DefaultBufferCapacity = HeaderCapacity + 1 + ContextCapacity + len("\n")
 	HeaderCapacity        = TimestampCapacity + 1 + LevelCapacity + 1 + MessageCapacity
 	TimestampCapacity     = len(time.RFC3339) - len("07:00") // hardcoded to always be in UTC
@@ -487,7 +489,7 @@ func sometimes(cond bool, msg string) {
 }
 
 func assert(cond bool, msg string) {
-	if !cond {
+	if !cond && !DISABLE_ASSERTIONS {
 		os.Stderr.Write(stringToBytes("assertion failed: " + msg))
 		os.Exit(1)
 	}
