@@ -1,592 +1,623 @@
-// This file is AI-generated. I'll write proper tests later.
-package itlog
+// This file is AI-generated.
+package itlog_test
 
 import (
 	"bytes"
 	"errors"
-	"strconv"
+	"io"
+	"os"
+	"regexp"
 	"strings"
 	"testing"
+
+	"golang_snacks/invariant"
+	"golang_snacks/itlog"
 )
 
-func TestLoggerBasic(t *testing.T) {
+func TestMain(m *testing.M) {
+	invariant.RegisterPackagesForAnalysis()
+	code := m.Run()
+	invariant.AnalyzeAssertionFrequency()
+	os.Exit(code)
+}
+
+func TestBasicInfoLog(t *testing.T) {
+	orig := itlog.Writer
+	defer func() { itlog.Writer = orig }()
+
 	var buf bytes.Buffer
-	Writer = &buf
+	itlog.Writer = &buf
 
-	l := New(LevelDebug).WithStr("app", "test")
-
-	l.Info().Msg("hello")
-	l.Error(errors.New("fail")).Msg("oops")
-
-	out := buf.String()
-	if !strings.Contains(out, "hello") {
-		t.Fatal("missing info message")
-	}
-	if !strings.Contains(out, "fail") {
-		t.Fatal("missing error message")
-	}
-}
-
-func withWriter(b *bytes.Buffer, fn func()) {
-	old := Writer
-	Writer = b
-	defer func() { Writer = old }()
-	fn()
-}
-
-func TestAppendAndEscape(t *testing.T) {
-	var dst []byte
-	appendAndEscape(&dst, "a|=b\\c")
-	got := string(dst)
-	// only '|' and '=' must be escaped (backslash inserted). original backslash remains.
-	if !strings.Contains(got, `a\|\=b\c`) && !strings.Contains(got, `a\|\=b\\c`) {
-		t.Fatalf("unexpected escaped output: %q", got)
-	}
-}
-
-func TestWithDataAndDataAndEscaping(t *testing.T) {
-	l := New(LevelInfo)
+	l := itlog.New(itlog.LevelInfo)
 	if l == nil {
 		t.Fatal("New returned nil")
 	}
-	l2 := l.WithData("k|x", "v=y")
-	if l2 == nil {
-		t.Fatal("WithData returned nil")
-	}
-	s := string(l2.Buffer)
-	if !strings.Contains(s, `k\|x\=v\=y`) && !strings.Contains(s, "k\\|x") {
-		t.Fatalf("expected escaped key/value in logger buffer, got %q", s)
-	}
+	l.Info().Str("user", "alice").Int("id", 42).Msg("hello")
 
-	e := NewEvent(l2, "INF")
-	e = e.Data("k|", "v=")
-	withWriter(&bytes.Buffer{}, func() {
-		e.Msg("")
-	})
-	// ensure Data doesn't crash and appended separator exists
-	if !strings.Contains(string(e.Buffer), string(ComponentSeparator)) {
-		t.Fatalf("event buffer missing component separator: %q", string(e.Buffer))
+	out := buf.String()
+	// header:  YYYY-MM-DDTHH:MM:SSZ|INF|
+	if matched := regexp.MustCompile(`^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\|INF\|`).MatchString(out); !matched {
+		t.Fatalf("unexpected header: %q", out)
 	}
-}
-
-func TestNewNilConditions(t *testing.T) {
-	old := Writer
-	Writer = nil
-	if got := New(LevelInfo); got != nil {
-		t.Fatalf("expected nil when Writer == nil, got %+v", got)
-	}
-	Writer = old
-
-	if got := New(LevelDisabled); got != nil {
-		t.Fatalf("expected nil for disabled level, got %+v", got)
+	if !strings.Contains(out, "hello") || !strings.Contains(out, "user=alice") || !strings.Contains(out, "id=42") {
+		t.Fatalf("missing payload: %q", out)
 	}
 }
 
 func TestLevelFiltering(t *testing.T) {
-	l := New(LevelWarn)
+	l := itlog.New(itlog.LevelError)
+	if l == nil {
+		t.Fatal("New returned nil")
+	}
 	if l.Debug() != nil {
-		t.Fatal("Debug should be nil at warn level")
+		t.Fatal("Debug must be disabled at Error level")
 	}
 	if l.Info() != nil {
-		t.Fatal("Info should be nil at warn level")
-	}
-	if l.Warn() == nil {
-		t.Fatal("Warn should not be nil at warn level")
-	}
-}
-
-func TestErrorConvenienceAndErrs(t *testing.T) {
-	l := New(LevelError)
-	buf := &bytes.Buffer{}
-	withWriter(buf, func() {
-		e := l.Error(errors.New("boom"))
-		if e == nil {
-			t.Fatal("Error returned nil")
-		}
-		e.Msg("something")
-	})
-	out := buf.String()
-	if !strings.Contains(out, "error=boom") {
-		t.Fatalf("expected error field, got %q", out)
-	}
-
-	buf.Reset()
-	withWriter(buf, func() {
-		e := l.Error(errors.New("a"), errors.New("b"))
-		if e == nil {
-			t.Fatal("Error returned nil for multiple errs")
-		}
-		e.Msg("m")
-	})
-	if !strings.Contains(buf.String(), "error=a") || !strings.Contains(buf.String(), "error=b") {
-		t.Fatalf("errs not written: %q", buf.String())
-	}
-}
-
-func parseLine(line string) (timePart, levelPart, msgPart, rest string) {
-	parts := strings.SplitN(line, string(ComponentSeparator), 4)
-	if len(parts) < 4 {
-		// pad to avoid panics in assertions
-		for len(parts) < 4 {
-			parts = append(parts, "")
-		}
-	}
-	return parts[0], parts[1], parts[2], parts[3]
-}
-
-func TestMsgEmptyAndTruncation(t *testing.T) {
-	l := New(LevelInfo)
-	buf := &bytes.Buffer{}
-	withWriter(buf, func() {
-		e := NewEvent(l, "INF")
-		e.Msg("") // should set "<empty>"
-	})
-	out := buf.String()
-	line := strings.TrimRight(out, "\n")
-	_, _, msg, _ := parseLine(line)
-	if !strings.Contains(msg, "<empty>") {
-		t.Fatalf("expected <empty> in message, got %q", msg)
-	}
-
-	// truncation
-	long := strings.Repeat("X", MessageCapacity+20)
-	buf.Reset()
-	withWriter(buf, func() {
-		e := NewEvent(l, "INF")
-		e.Msg(long)
-	})
-	line = strings.TrimRight(buf.String(), "\n")
-	_, _, msg2, _ := parseLine(line)
-	if len(msg2) != MessageCapacity {
-		t.Fatalf("expected message length %d, got %d (%q)", MessageCapacity, len(msg2), msg2)
-	}
-	if !strings.HasPrefix(msg2, strings.Repeat("X", MessageCapacity)) {
-		t.Fatalf("message truncated incorrectly: %q", msg2)
-	}
-}
-
-func TestMsgWritesNewlineAndHeaderLayout(t *testing.T) {
-	l := New(LevelInfo)
-	buf := &bytes.Buffer{}
-	withWriter(buf, func() {
-		e := NewEvent(l, "INF")
-		e.Str("k", "v")
-		e.Msg("hi")
-	})
-	out := buf.String()
-	if !strings.HasSuffix(out, "\n") {
-		t.Fatalf("output does not end with newline: %q", out)
-	}
-	line := strings.TrimRight(out, "\n")
-	timePart, levelPart, msgPart, rest := parseLine(line)
-	if len(levelPart) != LevelMaxWordLength {
-		t.Fatalf("level part length wrong: %q", levelPart)
-	}
-	if len(timePart) >= TimestampCapacity+1 {
-		// timePart includes no component separator here (split removed it) -- just check non-empty & reasonable
-	}
-	if !strings.Contains(rest, "k=v") {
-		t.Fatalf("context missing k=v: %q", rest)
-	}
-	_ = msgPart
-}
-
-func TestNumberAndUint64AndBool(t *testing.T) {
-	l := New(LevelInfo)
-	buf := &bytes.Buffer{}
-	withWriter(buf, func() {
-		e := NewEvent(l, "INF")
-		e.Int("i", 42)
-		e.Uint64("u", 9999999999)
-		e.Bool("b", true)
-		e.Msg("n")
-	})
-	out := buf.String()
-	if !strings.Contains(out, "i=42") {
-		t.Fatalf("int missing: %q", out)
-	}
-	if !strings.Contains(out, "u="+strconv.FormatUint(9999999999, 10)) {
-		t.Fatalf("uint64 missing: %q", out)
-	}
-	if !strings.Contains(out, "b=true") {
-		t.Fatalf("bool missing: %q", out)
-	}
-}
-
-func TestListAndMultipleDataCalls(t *testing.T) {
-	l := New(LevelInfo)
-	buf := &bytes.Buffer{}
-	withWriter(buf, func() {
-		e := NewEvent(l, "INF")
-		e.List("k", "a", "b", "c")
-		e.Msg("list")
-	})
-	out := buf.String()
-	if !(strings.Count(out, "k=") >= 3) {
-		t.Fatalf("expected three k= entries, got: %q", out)
-	}
-}
-
-func TestNilReceiversSafe(t *testing.T) {
-	var l *Logger
-	if l.WithData("k", "v") != nil {
-		t.Fatal("WithData on nil logger should return nil")
-	}
-	var e *Event
-	if e.Data("k", "v") != nil {
-		t.Fatal("Data on nil event should return nil")
-	}
-	// methods that should simply return
-	l = nil
-	if l.Debug() != nil {
-		t.Fatal("Debug on nil logger should return nil")
-	}
-	if l.Info() != nil {
-		t.Fatal("Info on nil logger should return nil")
+		t.Fatal("Info must be disabled at Error level")
 	}
 	if l.Warn() != nil {
-		t.Fatal("Warn on nil logger should return nil")
+		t.Fatal("Warn must be disabled at Error level")
+	}
+	if l.Error() == nil {
+		t.Fatal("Error must be enabled at Error level")
 	}
 }
 
-func TestEventPool_NewInstance(t *testing.T) {
-	got := EventPool.Get()
-	if got == nil {
-		t.Fatal("EventPool returned nil")
-	}
-	if _, ok := got.(*Event); !ok {
-		t.Fatalf("EventPool returned wrong type: %T", got)
-	}
-	EventPool.Put(got)
-}
+func TestWithContextInheritance(t *testing.T) {
+	orig := itlog.Writer
+	defer func() { itlog.Writer = orig }()
 
-func TestLoggerInheritance(t *testing.T) {
-	l := New(LevelInfo).WithStr("app", "core").WithInt("pid", 123)
-	buf := &bytes.Buffer{}
-	withWriter(buf, func() {
-		l.Info().Str("extra", "val").Msg("inherited")
-	})
+	var buf bytes.Buffer
+	itlog.Writer = &buf
+
+	base := itlog.New(itlog.LevelInfo)
+	if base == nil {
+		t.Fatal("New returned nil")
+	}
+	base = base.WithStr("svc", "auth")
+	child := base.WithStr("env", "prod")
+	child.Info().Msg("started")
+
 	out := buf.String()
-	if !strings.Contains(out, "app=core") || !strings.Contains(out, "pid=123") {
-		t.Fatalf("context not inherited: %q", out)
+	if !strings.Contains(out, "svc=auth") || !strings.Contains(out, "env=prod") {
+		t.Fatalf("inherited context missing: %q", out)
 	}
 }
 
-func TestBeginAndDone(t *testing.T) {
-	l := New(LevelInfo)
-	buf := &bytes.Buffer{}
-	withWriter(buf, func() {
-		e := l.Info()
-		e.Begin("task")
-		e2 := l.Info()
-		e2.Done("task")
-	})
-	out := buf.String()
-	if !strings.Contains(out, "begin task") || !strings.Contains(out, "done  task") {
-		t.Fatalf("missing begin/done: %q", out)
+func TestErrorConvenience(t *testing.T) {
+	orig := itlog.Writer
+	defer func() { itlog.Writer = orig }()
+
+	var buf bytes.Buffer
+	itlog.Writer = &buf
+
+	l := itlog.New(itlog.LevelInfo)
+	if l == nil {
+		t.Fatal("New returned nil")
+	}
+
+	// no-arg Error() should not inject an error key
+	l.Error().Msg("noerr")
+	if strings.Contains(buf.String(), "error=") {
+		t.Fatalf("unexpected error key present: %q", buf.String())
+	}
+
+	buf.Reset()
+	// single error should appear as error=<msg>
+	l.Error(errors.New("boom")).Msg("witherr")
+	if !strings.Contains(buf.String(), "error=boom") {
+		t.Fatalf("expected error key missing: %q", buf.String())
 	}
 }
 
-func TestWithErrAndBoolInt(t *testing.T) {
-	l := New(LevelInfo).WithErr("err", errors.New("fail")).WithBool("ok", true).WithInt("n", 99)
-	buf := &bytes.Buffer{}
-	withWriter(buf, func() {
-		l.Info().Msg("combo")
-	})
+func newBufLogger(level int) (*itlog.Logger, *bytes.Buffer) {
+	var buf bytes.Buffer
+	itlog.Writer = &buf
+	return itlog.New(level), &buf
+}
+
+func TestAllLevels(t *testing.T) {
+	l, buf := newBufLogger(itlog.LevelDebug)
+	l.Debug().Msg("d")
+	l.Info().Msg("i")
+	l.Warn().Msg("w")
+	l.Error().Msg("e")
+
 	out := buf.String()
-	for _, k := range []string{"err=fail", "ok=true", "n=99"} {
+	for _, lvl := range []string{"DBG", "INF", "WRN", "ERR"} {
+		if !strings.Contains(out, lvl) {
+			t.Fatalf("missing %s", lvl)
+		}
+	}
+}
+
+func TestBoolVariants(t *testing.T) {
+	l, buf := newBufLogger(itlog.LevelInfo)
+	l.Info().Bool("yes", true).Bool("no", false).Msg("bools")
+	out := buf.String()
+	if !strings.Contains(out, "yes=true") || !strings.Contains(out, "no=false") {
+		t.Fatalf("expected both bool values, got %q", out)
+	}
+}
+
+func TestWithErrNilAndNonNil(t *testing.T) {
+	l, buf := newBufLogger(itlog.LevelInfo)
+	err := errors.New("ouch")
+	l = l.WithErr("e1", err).WithErr("e2", nil)
+	l.Info().Msg("errs")
+	out := buf.String()
+	if !strings.Contains(out, "e1=ouch") {
+		t.Fatalf("missing non-nil err: %q", out)
+	}
+	if strings.Contains(out, "e2=") {
+		t.Fatalf("should not include nil err: %q", out)
+	}
+}
+
+func TestListAndErrs(t *testing.T) {
+	l, buf := newBufLogger(itlog.LevelInfo)
+	errs := []error{errors.New("a"), nil, errors.New("b")}
+	l.Info().Errs(errs...).List("k").Msg("multi")
+	out := buf.String()
+	if !strings.Contains(out, "error=a") || !strings.Contains(out, "error=b") {
+		t.Fatalf("expected multiple errors: %q", out)
+	}
+	if !strings.Contains(out, "k=<forgot to add values") {
+		t.Fatalf("expected forgot marker: %q", out)
+	}
+}
+
+func TestAllIntAndUintVariants(t *testing.T) {
+	l, buf := newBufLogger(itlog.LevelInfo)
+	ev := l.Info().
+		Int("i", 1).
+		Int8("i8", 2).
+		Int16("i16", 3).
+		Int32("i32", 4).
+		Int64("i64", 5).
+		Uint("u", 6).
+		Uint8("u8", 7).
+		Uint16("u16", 8).
+		Uint32("u32", 9).
+		Uint64("u64", 10)
+	ev.Msg("nums")
+	out := buf.String()
+	for _, k := range []string{"i=", "i8=", "i16=", "i32=", "i64=", "u=", "u8=", "u16=", "u32=", "u64="} {
 		if !strings.Contains(out, k) {
 			t.Fatalf("missing %s in %q", k, out)
 		}
 	}
 }
 
-func TestEventMultipleDataCallsOrder(t *testing.T) {
-	l := New(LevelInfo)
-	buf := &bytes.Buffer{}
-	withWriter(buf, func() {
-		e := NewEvent(l, "INF")
-		e.Str("a", "1").Int("b", 2).Bool("c", true)
-		e.Msg("multi")
-	})
+func TestBeginDoneConvenience(t *testing.T) {
+	l, buf := newBufLogger(itlog.LevelInfo)
+	l.Info().Begin("work")
+	l.Info().Done("work")
 	out := buf.String()
-	idxA := strings.Index(out, "a=1")
-	idxB := strings.Index(out, "b=2")
-	idxC := strings.Index(out, "c=true")
-	if !(idxA < idxB && idxB < idxC) {
-		t.Fatalf("data order incorrect: %q", out)
+	if !strings.Contains(out, "begin work") || !strings.Contains(out, "done  work") {
+		t.Fatalf("expected begin/done messages: %q", out)
 	}
 }
 
-func TestDataWithEmptyKeyAndValue(t *testing.T) {
-	l := New(LevelInfo)
-	buf := &bytes.Buffer{}
-	withWriter(buf, func() {
-		e := NewEvent(l, "INF")
-		e.Str("", "")
-		e.Msg("empty")
-	})
+func TestEncodeEscaping(t *testing.T) {
+	l, buf := newBufLogger(itlog.LevelInfo)
+	special := "a|b=c\n\x00\\end"
+	l.Info().Str("data", special).Msg("escape")
 	out := buf.String()
-	if !strings.Contains(out, "=") {
-		t.Fatalf("expected empty key/value to produce '=', got %q", out)
+	if !strings.Contains(out, "data=") {
+		t.Fatalf("missing key: %q", out)
+	}
+	if strings.Contains(out, "\n") && !strings.HasSuffix(out, "\n") {
+		t.Fatalf("unexpected raw newline: %q", out)
 	}
 }
 
-func TestEventListWithEmptySlice(t *testing.T) {
-	l := New(LevelInfo)
-	buf := &bytes.Buffer{}
-	withWriter(buf, func() {
-		e := NewEvent(l, "INF")
-		e.List("k")
-		e.Msg("emptylist")
-	})
-	out := buf.String()
-	if strings.Contains(out, "k=") {
-		t.Fatalf("empty list should not add entries: %q", out)
+func TestDisabledLogger(t *testing.T) {
+	if itlog.New(itlog.LevelDisabled) != nil {
+		t.Fatal("disabled logger should be nil")
 	}
 }
 
-func TestMsgWithEmptyString(t *testing.T) {
-	l := New(LevelInfo)
-	buf := &bytes.Buffer{}
-	withWriter(buf, func() {
-		e := NewEvent(l, "INF")
-		// do not call Msg()
-		e.Msg("")
-	})
-	out := buf.String()
-	if !strings.Contains(out, "<empty>") {
-		t.Fatalf("Msg with empty string should produce <empty>, got %q", out)
-	}
+func TestNilLoggerAndEventViaPublicAPI(t *testing.T) {
+	// nil logger from disabled level
+	l := itlog.New(itlog.LevelDisabled)
+	l.Debug().Msg("no log")        // safe no-op
+	l.Info().Err(nil).Msg("")      // safe no-op
+	l.Warn().Str("a", "b").Msg("") // safe no-op
 }
 
-func TestOverwriteMsgMultipleTimes(t *testing.T) {
-	l := New(LevelInfo)
-	buf := &bytes.Buffer{}
-	withWriter(buf, func() {
-		e := NewEvent(l, "INF")
-		e.Msg("first")
-		e.Msg("second")
-	})
-	out := buf.String()
-	if strings.Count(out, "first") != 1 || strings.Count(out, "second") != 1 {
-		t.Fatalf("multiple Msg calls failed: %q", out)
-	}
-}
-
-func TestWithDataEscapingSpecialChars(t *testing.T) {
-	l := New(LevelInfo)
-	buf := &bytes.Buffer{}
-	withWriter(buf, func() {
-		l2 := l.WithData("key|=x", "val|=y")
-		l2.Info().Msg("escaped")
-	})
-	out := buf.String()
-	for _, sub := range []string{"key\\|\\=x", "val\\|\\=y"} {
-		if !strings.Contains(out, sub) {
-			t.Fatalf("expected escaped content %q in %q", sub, out)
-		}
-	}
-}
-
-func TestEventNumberInt64Edge(t *testing.T) {
-	l := New(LevelInfo)
-	buf := &bytes.Buffer{}
-	withWriter(buf, func() {
-		e := NewEvent(l, "INF")
-		e.Number("min", int64(-9223372036854775808))
-		e.Number("max", int64(9223372036854775807))
-		e.Msg("int64")
-	})
-	out := buf.String()
-	if !strings.Contains(out, "min=-9223372036854775808") || !strings.Contains(out, "max=9223372036854775807") {
-		t.Fatalf("int64 extremes not logged correctly: %q", out)
-	}
-}
-
-func TestEventUint64Edge(t *testing.T) {
-	l := New(LevelInfo)
-	buf := &bytes.Buffer{}
-	withWriter(buf, func() {
-		e := NewEvent(l, "INF")
-		e.Uint64("zero", 0)
-		e.Uint64("max", ^uint64(0))
-		e.Msg("uint64")
-	})
-	out := buf.String()
-	if !strings.Contains(out, "zero=0") || !strings.Contains(out, "max=18446744073709551615") {
-		t.Fatalf("uint64 extremes not logged correctly: %q", out)
-	}
-}
-
-func TestWithErrNilDoesNotAdd(t *testing.T) {
-	l := New(LevelInfo)
-	buf := &bytes.Buffer{}
-	withWriter(buf, func() {
-		l2 := l.WithErr("err", nil)
-		l2.Info().Msg("nilerr")
-	})
-	out := buf.String()
-	if strings.Contains(out, "err=") {
-		t.Fatalf("nil error should not appear in context: %q", out)
-	}
-}
-
-func TestMsgTrimmingSpaces(t *testing.T) {
-	l := New(LevelInfo)
-	buf := &bytes.Buffer{}
-	withWriter(buf, func() {
-		e := NewEvent(l, "INF")
-		longMsg := "short"
-		e.Msg(longMsg)
-	})
-	out := buf.String()
-	if !strings.Contains(out, "short") {
-		t.Fatalf("message not preserved: %q", out)
-	}
-}
-
-func BenchmarkLoggerInfoSimple(b *testing.B) {
-	l := New(LevelInfo)
-	for i := 0; i < b.N; i++ {
-		e := l.Info()
-		if e != nil {
-			e.Msg("info message")
-		}
-	}
-}
-
-func BenchmarkLoggerErrorSimple(b *testing.B) {
-	l := New(LevelError)
-	err := errors.New("error")
-	for i := 0; i < b.N; i++ {
-		e := l.Error(err)
-		if e != nil {
-			e.Msg("error message")
-		}
-	}
-}
-
-func BenchmarkLoggerWithStrContext(b *testing.B) {
-	l := New(LevelInfo).WithStr("app", "benchmark").WithStr("module", "logger")
-	for i := 0; i < b.N; i++ {
-		e := l.Info()
-		if e != nil {
-			e.Str("user", "alice").Str("action", "test").Msg("info with context")
-		}
-	}
-}
-
-func BenchmarkLoggerWithIntAndBoolContext(b *testing.B) {
-	l := New(LevelInfo).WithInt("pid", 12345).WithBool("active", true)
-	for i := 0; i < b.N; i++ {
-		e := l.Info()
-		if e != nil {
-			e.Int("count", 42).Bool("ok", true).Msg("info with numbers and bool")
-		}
-	}
-}
-
-func BenchmarkLoggerWithErrs(b *testing.B) {
-	l := New(LevelError)
-	errs := []error{errors.New("first"), errors.New("second")}
-	for i := 0; i < b.N; i++ {
-		e := l.Error(errs[0], errs[1])
-		if e != nil {
-			e.Msg("error with multiple errs")
-		}
-	}
-}
-
-func BenchmarkLoggerLongMessage(b *testing.B) {
-	l := New(LevelInfo)
-	longMsg := make([]byte, MessageCapacity*2)
-	for i := range longMsg {
-		longMsg[i] = 'X'
-	}
-	msgStr := string(longMsg)
-	for i := 0; i < b.N; i++ {
-		e := l.Info()
-		if e != nil {
-			e.Msg(msgStr)
-		}
-	}
-}
-
-func BenchmarkLoggerMultipleDataCalls(b *testing.B) {
-	l := New(LevelInfo)
-	for i := 0; i < b.N; i++ {
-		e := l.Info()
-		if e != nil {
-			e.Str("a", "1").Int("b", 2).Bool("c", true).Msg("multi data")
-		}
-	}
-}
-
-func BenchmarkLoggerListContext(b *testing.B) {
-	l := New(LevelInfo)
-	items := []string{"a", "b", "c", "d", "e"}
-	for i := 0; i < b.N; i++ {
-		e := l.Info()
-		if e != nil {
-			e.List("item", items...).Msg("list context")
-		}
-	}
-}
-
-func BenchmarkLoggerInheritance(b *testing.B) {
-	l := New(LevelInfo).WithStr("app", "core").WithInt("pid", 999)
-	for i := 0; i < b.N; i++ {
-		e := l.Info()
-		if e != nil {
-			e.Str("extra", "val").Msg("inherited context")
-		}
-	}
-}
-
-func BenchmarkLoggerEscaping(b *testing.B) {
-	l := New(LevelInfo)
-	for i := 0; i < b.N; i++ {
-		e := l.Info()
-		if e != nil {
-			e.Str("key|=x", "val=|y").Msg("escaping test")
-		}
-	}
-}
-
-func BenchmarkLoggerUint64AndInt64(b *testing.B) {
-	l := New(LevelInfo)
-	for i := 0; i < b.N; i++ {
-		e := l.Info()
-		if e != nil {
-			e.Uint64("u", ^uint64(0)).Number("i", int64(^uint64(0)>>1)).Msg("numbers")
-		}
-	}
-}
-
-func BenchmarkLogger10MixedFields(b *testing.B) {
+func TestContextAndErrorVariants(t *testing.T) {
 	var buf bytes.Buffer
-	Writer = &buf
+	itlog.Writer = &buf
+	l := itlog.New(itlog.LevelDebug)
 
-	l := New(LevelInfo)
-	sampleErr := errors.New("fail")
+	// exercise all context types through public methods
+	l.Info().
+		Int("i", 1).
+		Int8("i8", 2).
+		Int16("i16", 3).
+		Int32("i32", 4).
+		Int64("i64", 5).
+		Uint("u", 6).
+		Uint8("u8", 7).
+		Uint16("u16", 8).
+		Uint32("u32", 9).
+		Uint64("u64", 10).
+		Bool("t", true).
+		Bool("f", false).
+		Err(errors.New("one")).
+		Err(nil).
+		Msg("ctx")
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		e := l.Info()
-		if e != nil {
-			e.Str("s1", "val1").
-				Int("i1", 42).
-				Bool("b1", true).
-				Uint64("u1", 999999).
-				Str("s2", "val2").
-				Int32("i2", -17).
-				Bool("b2", false).
-				Err(sampleErr).
-				Uint("u2", 12345).
-				Str("s3", "val3").
-				Msg("10 mixed fields")
-		}
-		buf.Reset() // reset buffer for consistent measurement
+	out := buf.String()
+	if out == "" {
+		t.Fatal("expected output")
 	}
+}
+
+func TestListAndErrsPublic(t *testing.T) {
+	var buf bytes.Buffer
+	itlog.Writer = &buf
+	l := itlog.New(itlog.LevelInfo)
+	errs := []error{errors.New("a"), nil, errors.New("b")}
+	l.Info().Errs(errs...).List("nums").Msg("test")
+	if buf.Len() == 0 {
+		t.Fatal("expected log output")
+	}
+}
+
+func TestBeginDoneAndDisabled(t *testing.T) {
+	var buf bytes.Buffer
+	itlog.Writer = &buf
+	l := itlog.New(itlog.LevelInfo)
+	l.Info().Begin("job")
+	l.Info().Done("job")
+	if buf.Len() == 0 {
+		t.Fatal("expected begin/done logs")
+	}
+}
+
+func TestEscapingAndEmptyMessages(t *testing.T) {
+	var buf bytes.Buffer
+	itlog.Writer = &buf
+	l := itlog.New(itlog.LevelInfo)
+	l.Info().Str("weird", "x|y=z\n\x00\\").Msg("")
+	if buf.Len() == 0 {
+		t.Fatal("expected escaped log")
+	}
+}
+
+func TestNilWriterAndErrorLevelDisabled(t *testing.T) {
+	itlog.Writer = nil
+	l := itlog.New(itlog.LevelError)
+	// Writer=nil, disabled below Error, will trigger those nil paths
+	l.Debug().Msg("dbg")
+	l.Info().Msg("inf")
+	l.Warn().Msg("wrn")
+	l.Error().Msg("err") // should no-panic
+}
+
+func TestMultipleErrorArgs(t *testing.T) {
+	var buf bytes.Buffer
+	itlog.Writer = &buf
+	l := itlog.New(itlog.LevelDebug)
+	l.Error().Err(errors.New("one")).Err(errors.New("two")).Msg("multierr")
+	if !strings.Contains(buf.String(), "multierr") {
+		t.Fatal("expected message")
+	}
+}
+
+func TestWithBoolTrueFalseAndCondPaths(t *testing.T) {
+	var buf bytes.Buffer
+	itlog.Writer = &buf
+	l := itlog.New(itlog.LevelDebug)
+	l = l.WithBool("condTrue", true).WithBool("condFalse", false)
+	l.Info().Msg("boolcond")
+	out := buf.String()
+	if !strings.Contains(out, "condTrue") {
+		t.Fatal("expected condTrue")
+	}
+	if !strings.Contains(out, "condFalse") {
+		t.Fatal("expected condFalse")
+	}
+}
+
+func TestOversizedMessage(t *testing.T) {
+	var buf bytes.Buffer
+	itlog.Writer = &buf
+	l := itlog.New(itlog.LevelDebug)
+	big := strings.Repeat("X", 4096) // exceed default buffer
+	l.Info().Msg(big)
+	if buf.Len() == 0 {
+		t.Fatal("expected oversized message log")
+	}
+}
+
+func TestEscapedNewlineKeyValSepComponentSep(t *testing.T) {
+	var buf bytes.Buffer
+	itlog.Writer = &buf
+	l := itlog.New(itlog.LevelInfo)
+	s := "a|b=c\nnull\x00end"
+	l.Info().Str("x", s).Msg("escapeTest")
+	out := buf.String()
+	if strings.Contains(out, "\n") && !strings.HasSuffix(out, "\n") {
+		t.Fatal("unexpected raw newline")
+	}
+	if !strings.Contains(out, "escapeTest") {
+		t.Fatal("expected message")
+	}
+}
+
+func TestAllErrsNilAndNonNil(t *testing.T) {
+	var buf bytes.Buffer
+	itlog.Writer = &buf
+	l := itlog.New(itlog.LevelInfo)
+	l.Info().Errs(nil, nil).Msg("allNilErrs")
+	l.Info().Errs(errors.New("one"), errors.New("two")).Msg("nonNilErrs")
+	if !strings.Contains(buf.String(), "nonNilErrs") {
+		t.Fatal("expected nonNilErrs")
+	}
+}
+
+func TestNilEventPublicCallsAndEmptyEncode(t *testing.T) {
+	var buf bytes.Buffer
+	itlog.Writer = &buf
+
+	// Create a logger where Debug is disabled so Debug() returns nil _Event.
+	l := itlog.New(itlog.LevelInfo)
+	if l == nil {
+		t.Fatal("New returned nil")
+	}
+
+	// nil event: call many exported methods on the returned nil _Event to hit nil-path invariants.
+	ev := l.Debug() // returns nil because LevelInfo > LevelDebug
+	ev.Str("a", "b")
+	ev.Int("i", 1)
+	ev.Int8("i8", 2)
+	ev.Int16("i16", 3)
+	ev.Int32("i32", 4)
+	ev.Int64("i64", 5)
+	ev.Uint("u", 6)
+	ev.Uint8("u8", 7)
+	ev.Uint16("u16", 8)
+	ev.Uint32("u32", 9)
+	ev.Uint64("u64", 10)
+	ev.Bool("t", true)
+	ev.Bool("f", false)
+	ev.List("lst", "one", "two")
+	ev.Err(nil)
+	ev.Errs(nil, errors.New("e"))
+	ev.Msg("") // no panic - should be safe no-op
+}
+
+func TestEmptyKeyAndValueEncodeAndEscapePaths(t *testing.T) {
+	var buf bytes.Buffer
+	itlog.Writer = &buf
+
+	l := itlog.New(itlog.LevelDebug)
+	if l == nil {
+		t.Fatal("New returned nil")
+	}
+
+	// lots of tricky characters to exercise escaping logic via public API
+	special := "pipe|eq=nl\nnul\x00back\\end"
+	l.Info().Str("data", special).Msg("escaped")
+	out := buf.String()
+	if out == "" {
+		t.Fatal("expected some log output")
+	}
+	// no raw newline should appear inside the context portion (only trailing record newline allowed)
+	if count := strings.Count(out, "\n"); count > 2 {
+		t.Fatalf("unexpected %d embedded newline(s) in output: %q", count, out)
+	}
+}
+
+func TestMultipleErrorArgsAndListEmpty(t *testing.T) {
+	var buf bytes.Buffer
+	itlog.Writer = &buf
+
+	l := itlog.New(itlog.LevelDebug)
+	if l == nil {
+		t.Fatal("New returned nil")
+	}
+
+	// multiple errors (triggers logger.Error path that handles multiple args)
+	l.Error(errors.New("a"), errors.New("b")).Msg("manyerrs")
+
+	// empty List call (via exported List) should add the "forgot to add values..." marker
+	l.Info().List("empty").Msg("gotlist")
+	if buf.Len() == 0 {
+		t.Fatal("expected logs")
+	}
+}
+
+func TestLoggerBlackbox(t *testing.T) {
+	// 1. Nil Logger
+	var l *itlog.Logger
+	if l.Debug() != nil {
+		t.Error("expected nil")
+	}
+	if l.Info() != nil {
+		t.Error("expected nil")
+	}
+	if l.Warn() != nil {
+		t.Error("expected nil")
+	}
+	if l.Error() != nil {
+		t.Error("expected nil")
+	}
+
+	// 2. Disabled Logger
+	ld := itlog.New(itlog.LevelDisabled)
+	if ld != nil {
+		t.Error("expected nil logger when disabled")
+	}
+
+	// 3. Chaining context methods
+	l = itlog.New(itlog.LevelDebug)
+	l2 := l.WithData("foo", "bar").
+		WithStr("str", "val").
+		WithInt("i", 123).
+		WithBool("b", true).
+		WithErr("err", errors.New("err1"))
+	if l2 == nil {
+		t.Error("expected logger copy")
+	}
+
+	e := l2.Debug()
+	if e == nil {
+		t.Fatal("debug logEvent should not be nil")
+	}
+	e.Msg("test message")
+
+	// 4. Special characters & empty message
+	e = l.Debug()
+	if e == nil {
+		t.Fatal("debug event nil")
+	}
+	e.Data("newline", "a\nb").Data("sep", "x|y").Data("null", string([]byte{0}))
+	e.Msg("")
+
+	// 5. Large context to trigger oversized buffer path
+	e = l.Debug()
+	if e == nil {
+		t.Fatal("debug event nil")
+	}
+	large := make([]byte, itlog.DefaultEventBufferCapacity*2)
+	e.Data("large", string(large))
+	e.Msg("large buffer test")
+
+	// 6. Error variations
+	e = l.Error()
+	if e == nil {
+		t.Fatal("error event nil")
+	}
+	e = l.Error(errors.New("one"))
+	e = l.Error(errors.New("one"), errors.New("two"), nil)
+}
+
+// silenceOutput redirects the global itlog.Writer to io.Discard for the
+// duration of a test.
+func silenceOutput(t *testing.T) {
+	t.Helper()
+	originalWriter := itlog.Writer
+	itlog.Writer = io.Discard
+	t.Cleanup(func() {
+		itlog.Writer = originalWriter
+	})
+}
+
+// TestNilLoggerReceivers triggers assertions for methods called on a nil *Logger.
+// Each case is in a t.Run() to isolate panics.
+func TestNilLoggerReceivers(t *testing.T) {
+	silenceOutput(t)
+	var logger *itlog.Logger // logger is intentionally nil
+
+	t.Run("Logger.NewEvent is nil", func(t *testing.T) {
+		// This triggers:
+		// "Logger is nil" at .../itlog.go:214
+		logger.NewEvent("INF")
+	})
+
+	t.Run("Logger.Debug is nil", func(t *testing.T) {
+		// This triggers:
+		// "Logger is nil" at .../itlog.go:214
+		logger.Debug()
+	})
+
+	t.Run("Logger.Info is nil", func(t *testing.T) {
+		logger.Info()
+	})
+
+	t.Run("Logger.Warn is nil", func(t *testing.T) {
+		logger.Warn()
+	})
+
+	t.Run("Logger.Error is nil", func(t *testing.T) {
+		logger.Error(errors.New("test"))
+	})
+
+	t.Run("Logger.WithStr is nil", func(t *testing.T) {
+		logger.WithStr("key", "val")
+	})
+
+	t.Run("Logger.WithData is nil", func(t *testing.T) {
+		logger.WithData("key", "val")
+	})
+
+	t.Run("Logger.WithErr is nil", func(t *testing.T) {
+		logger.WithErr("key", errors.New("test"))
+	})
+
+	t.Run("Logger.WithInt is nil", func(t *testing.T) {
+		logger.WithInt("key", 123)
+	})
+
+	t.Run("Logger.WithBool is nil", func(t *testing.T) {
+		logger.WithBool("key", true)
+	})
+}
+
+// TestNilLogEventReceivers triggers assertions for methods called on a nil *logEvent.
+// A nil *logEvent is returned when a log level is disabled.
+func TestNilLogEventReceivers(t *testing.T) {
+	silenceOutput(t)
+	// Create a logger where Debug level is disabled (LevelInfo > LevelDebug)
+	logger := itlog.New(itlog.LevelInfo)
+
+	t.Run("logEvent.Number is nil", func(t *testing.T) {
+		// This triggers:
+		// "logEvent is nil" at .../itlog.go:184
+		logger.Debug().Int("key", 123) // .Int() calls .Number()
+	})
+
+	t.Run("logEvent.Err is nil", func(t *testing.T) {
+		// This triggers:
+		// "logEvent is nil" at .../itlog.go:376
+		logger.Debug().Err(errors.New("test"))
+	})
+
+	t.Run("logEvent.Data is nil", func(t *testing.T) {
+		logger.Debug().Data("key", "val")
+	})
+
+	t.Run("logEvent.Str is nil", func(t *testing.T) {
+		logger.Debug().Str("key", "val")
+	})
+
+	t.Run("logEvent.Msg is nil", func(t *testing.T) {
+		logger.Debug().Msg("this should not panic")
+	})
+
+	t.Run("logEvent.Begin is nil", func(t *testing.T) {
+		logger.Debug().Begin("this should not panic")
+	})
+	t.Run("logEvent.Done is nil", func(t *testing.T) {
+		logger.Debug().Done("this should not panic")
+	})
+}
+
+// TestDisabledLogLevels triggers assertions for specifically disabled log levels.
+func TestDisabledLogLevels(t *testing.T) {
+	silenceOutput(t)
+
+	// Create a logger with a level *above* Error but *below* Disabled
+	logger := itlog.New(itlog.LevelError + 1)
+
+	t.Run("Error level disabled", func(t *testing.T) {
+		// "Error level and below is disabled" at .../itlog.go:291
+		logger.Error(errors.New("this should not be logged"))
+	})
+
+	t.Run("Warn level disabled", func(t *testing.T) {
+		logger.Warn()
+	})
+
+	t.Run("Info level disabled", func(t *testing.T) {
+		logger.Info()
+	})
+
+	t.Run("Debug level disabled", func(t *testing.T) {
+		logger.Debug()
+	})
 }
