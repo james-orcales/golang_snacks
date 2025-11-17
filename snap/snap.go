@@ -3,11 +3,12 @@ package snap
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"os"
+	"path"
+	"path/filepath"
 	"runtime"
 	"strings"
-
-	"golang_snacks/invariant"
 )
 
 func New(data string) Snapshot {
@@ -16,16 +17,28 @@ func New(data string) Snapshot {
 	frame, _ := runtime.CallersFrames(callers[:count]).Next()
 
 	return Snapshot{
-		Data:     data,
+		Expect:   data,
 		FilePath: frame.File,
 		Line:     frame.Line,
 	}
 }
 
-// Diff returns true if actual == snapshot.Data
-func (snapshot Snapshot) Diff(actual string) bool {
-	if snapshot.Data != actual && !snapshot.ShouldUpdate {
-		defer fmt.Printf(`Snapshot differs
+// Used for GO_SNAPSHOT_UPDATE_ALL
+var lines_added = 0
+
+// Diff returns true if actual == snapshot.Expect
+func (snapshot Snapshot) Diff(actual string) (matched bool) {
+	assert(strings.Count(snapshot.Expect, "`") == 0, "Snapshot expected value does not contain backticks")
+	assert(strings.Count(actual, "`") == 0, "Snapshot actual value does not contain backticks")
+	assert(snapshot.Line > 1, "Go source have package declaration or comments in the first line")
+	assert(filepath.IsAbs(snapshot.FilePath), "Snapshot location is an absolute path")
+
+	matched = actual == snapshot.Expect
+	should_update := snapshot.ShouldUpdate || os.Getenv("SNAPSHOT_UPDATE_ALL") == "1"
+
+	if !should_update {
+		if !matched {
+			fmt.Printf(`Snapshot differs
 Expected:
 ---------
 %s
@@ -34,16 +47,18 @@ Actual:
 ---------
 %s
 ---------
-`, snapshot.Data, actual)
-	}
-	// Update file even when data matches so that the unnecessary Update() is removed
-	if snapshot.ShouldUpdate || os.Getenv("GO_SNAPSHOT_UPDATE_ALL") != "" {
-		defer fmt.Println("UPDATED SNAPSHOT")
+`, snapshot.Expect, actual)
+		}
+		return matched
+	} else {
+		snapshot.Line += lines_added
+		defer func() {
+			lines_added += strings.Count(actual, "\n") - strings.Count(snapshot.Expect, "\n")
+		}()
 		content, err := os.ReadFile(snapshot.FilePath)
 		if err != nil {
 			panic(fmt.Sprintf("Update snapshot | can't read file: %s\n", err))
 		}
-
 		line_count := 1
 		start, end := -1, -1
 		for i, b := range content {
@@ -56,21 +71,19 @@ Actual:
 					end = i
 					break
 				} else {
-					invariant.Unreachable("Stopped parsing at the very next line")
+					assert(true, "Stopped parsing at the next line after snap.New")
 				}
 			}
 		}
-		if start < 0 || end < 0 {
-			panic(fmt.Sprintf("Couldn't find index snapshot line in file %q\n", snapshot.FilePath))
-		}
-		invariant.Always(start > 1, "Go source have package declaration or comments in the first line")
+		assert(start >= 0 && end >= 0, "Snapshot is found")
+		assert(start > 1, "Go source have package declaration or comments in the first line")
+		assert(content[start-1] == '\n', "Line starts after newline")
+		assert(content[end] == '\n', "Line ends with newline")
 
 		line := string(content[start:end])
-		invariant.Always(strings.Count(line, "snap.New") == 1, "Only one snap.New call per line")
+		assert(strings.Count(line, "snap.New") == 1, "Only one snap.New call per line")
 		snap_New := strings.Index(string(content[start:end]), "snap.New")
-		if snap_New < 0 {
-			panic(fmt.Sprintf("Couldn't find snapshot in %s:%d\n", snapshot.FilePath, snapshot.Line))
-		}
+		assert(snap_New >= 0, "Found snapshot in expected line")
 		snap_New += start
 
 		open, close := -1, -1
@@ -85,25 +98,38 @@ Actual:
 				}
 			}
 		}
-		if open < 0 || close < 0 || open == close || open > close {
-			panic(fmt.Sprintf("Couldn't find backtick pair to replace snapshot: %s:%d\n", snapshot.FilePath, snapshot.Line))
-		}
+		assert(open >= 0, "Found open backtick")
+		assert(close >= 0, "Found closed backtick")
+		assert(open < close, "Open backtick comes before closed backtick")
+
 		var write_err error
-		for retry := 0; retry < 10; retry++ {
+		find, replace := "`).Update()", "`)"
+		if len(content[close:]) >= len(find) && string(content[close:][:len(find)]) == find {
+			if snapshot.Expect == actual {
+				fmt.Printf("Actual matches expected. Removing unnecessary .Update() at %s:%d", snapshot.FilePath, snapshot.Line)
+			}
 			write_err = os.WriteFile(
 				snapshot.FilePath,
-				bytes.Join([][]byte{content[:open+1], []byte(actual), []byte("`)"), content[close+len(").Update()")+1:]}, nil),
+				bytes.Join([][]byte{content[:open+1], []byte(actual), []byte(replace), content[close+len(find):]}, nil),
 				0o644,
 			)
-			if write_err == nil {
-				break
+		} else {
+			if matched {
+				return true
 			}
+			write_err = os.WriteFile(
+				snapshot.FilePath,
+				bytes.Join([][]byte{content[:open+1], []byte(actual), content[close:]}, nil),
+				0o644,
+			)
 		}
 		if write_err != nil {
 			panic(fmt.Sprintf("Couldn't commit snapshot update: %s:%d\n", snapshot.FilePath, snapshot.Line))
 		}
+
+		fmt.Printf("UPDATED SNAPSHOT %s:%d\n", snapshot.FilePath, snapshot.Line)
+		return matched
 	}
-	return actual == snapshot.Data
 }
 
 func (snapshot Snapshot) Update() Snapshot {
@@ -112,8 +138,63 @@ func (snapshot Snapshot) Update() Snapshot {
 }
 
 type Snapshot struct {
-	Data         string
+	Expect       string
 	FilePath     string
 	Line         int
 	ShouldUpdate bool
+}
+
+func assert(cond bool, msg string) {
+	if !cond {
+		fprintStackTrace(os.Stderr, 2)
+		fmt.Fprintln(os.Stderr, msg)
+		os.Exit(1)
+	}
+}
+
+func fprintStackTrace(w io.Writer, callerLocation int) {
+	const depth = 15
+	var pcs [depth]uintptr
+	skip := 1 + max(0, callerLocation)
+
+	n := runtime.Callers(skip, pcs[:])
+	fs := runtime.CallersFrames(pcs[:n])
+
+	var frames [depth]runtime.Frame
+	i := 0
+	for {
+		frame, ok := fs.Next()
+		if !ok || i >= len(frames) {
+			break
+		}
+		frame.Function = path.Base(frame.Function)
+		frames[i] = frame
+		i++
+	}
+
+	maxFn := 0
+	for j := 0; j < i; j++ {
+		n := len(frames[j].Function)
+		if n > maxFn {
+			maxFn = n
+		}
+	}
+
+	for j := 0; j < i; j++ {
+		frame := frames[j]
+		if frame.File == "_testmain.go" {
+			continue
+		}
+		switch frame.Function {
+		case "runtime.main", "testing.tRunner":
+			continue
+		}
+		fmt.Fprintf(w,
+			"%-*s | %s:%d\n",
+			maxFn,
+			frame.Function,
+			frame.File,
+			frame.Line,
+		)
+	}
 }
