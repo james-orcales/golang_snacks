@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net"
 	"net/smtp"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -12,17 +13,15 @@ import (
 )
 
 func main() {
-	// In production, we use soft assertions.
-	// During testing, we use hard assertions.
 	invariant.AssertionFailureCallback = func(msg string) {
-		atomic.AddInt32(&assertionFailureCount, 1)
-		slog.Error(msg)
+		atomic.AddInt32(&assertion_failure_count, 1)
+		panic(msg)
 	}
 	// Ensure any leftover assertions are announced.
 	defer func() {
-		if atomic.LoadInt32(&assertionFailureCount) > 0 {
-			sendEmail()
-			atomic.SwapInt32(&assertionFailureCount, 0)
+		if atomic.LoadInt32(&assertion_failure_count) > 0 {
+			send_email()
+			atomic.SwapInt32(&assertion_failure_count, 0)
 		}
 	}()
 
@@ -69,42 +68,62 @@ func main() {
 		}
 	}()
 
-	ticker := time.Tick(notifyFrequency)
+	ticker := time.Tick(notify_frequency)
 
-loop:
+	// Log assertion failures and continue; let all other panics crash the program.
+	database := make(map[string]int)
 	for {
-		select {
-		case message := <-messages:
-			switch message {
-			case "you gave me up":
-				// To assign a person for each assertion, you can edit the signature to take a third string containing their email address.
-				// I prefer to make it the third parameter so that the most relevant information (1) cond (2) msg are still read first.
-				// invariant.Always(message != "you gave me up", "Never gonna give you up.", "firstlast@myorg.io")
-				invariant.Always(false, "Never gonna give you up.")
-			case "shutdown":
-				// NOTE: this doesn't handle signal interrupts. You can still drop assertions with CTRL-C sending SIGINT for example.
-				break loop
+		should_shutdown := func() bool {
+			defer func() {
+				if err := recover(); err != nil {
+					if strErr, ok := err.(string); ok && strings.HasPrefix(strErr, invariant.AssertionFailureMsgPrefix) {
+						slog.Error(strErr)
+					}
+				}
+			}()
+			select {
+			case message := <-messages:
+				switch message {
+				default:
+					// To assign a person for each assertion, modify the signature to take a third string
+					// containing their email address. I prefer to make it the third parameter so that the most relevant
+					// information (1) cond (2) msg are still read first.
+					// invariant.Always(message != "you gave me up", "Never gonna give you up.", "firstlast@myorg.io")
+					invariant.Always(message != "you gave me up", "Never gonna give you up.")
+					database[message] += 1
+				case "shutdown":
+					// NOTE: this doesn't handle signal interrupts. You can still drop assertions with CTRL-C sending
+					// SIGINT for example.
+					return true
+				}
+			case <-ticker:
+				if atomic.LoadInt32(&assertion_failure_count) > 0 {
+					send_email()
+					atomic.SwapInt32(&assertion_failure_count, 0)
+				}
 			}
-		case <-ticker:
-			if atomic.LoadInt32(&assertionFailureCount) > 0 {
-				sendEmail()
-				atomic.SwapInt32(&assertionFailureCount, 0)
-			}
+			return false
+		}()
+		if should_shutdown {
+			break
 		}
+	}
+	for key, val := range database {
+		fmt.Println(key, val)
 	}
 }
 
 var (
-	assertionFailureCount int32 = 0
-	emailSentCount              = 0
+	assertion_failure_count int32 = 0
+	email_sent_count              = 0
 )
 
-const notifyFrequency = time.Second * 30
+const notify_frequency = time.Second * 30
 
-func sendEmail() {
+func send_email() {
 	// Safety guard so we don't mistakenly send a million emails...
-	const maxEmailsSent = 2
-	if atomic.LoadInt32(&assertionFailureCount) == 0 || emailSentCount >= maxEmailsSent {
+	const max_emails_sent = 2
+	if atomic.LoadInt32(&assertion_failure_count) == 0 || email_sent_count >= max_emails_sent {
 		return
 	}
 	err := smtp.SendMail(
@@ -115,13 +134,13 @@ func sendEmail() {
 		[]byte(fmt.Sprintf(
 			"To: %s\r\nSubject: 🚨 ASSERTION FAILURE 🚨\r\n\r\nDetected %d assertion failures in the last %d seconds.",
 			RECIPIENT,
-			assertionFailureCount,
-			notifyFrequency/time.Second,
+			assertion_failure_count,
+			notify_frequency/time.Second,
 		)),
 	)
 	if err != nil {
 		slog.Error("Failed to announce assertion failure via email", "error", err)
 		return
 	}
-	slog.Info("Assertion failures were announced via email.", "assertionFailureCount", assertionFailureCount)
+	slog.Info("Assertion failures were announced via email.", "assertion_failure_count", assertion_failure_count)
 }
