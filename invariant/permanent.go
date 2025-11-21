@@ -70,7 +70,7 @@ var IsRunningUnderGoBenchmark = func() bool {
 //	FAIL    golang_snacks/invariant/examples/02_math        0.330s
 //	FAIL
 func FprintStackTrace(w io.Writer, callerLocation int) {
-	depth := 15
+	const depth = 15
 	var pcs [depth]uintptr
 	skip := 2 + max(0, callerLocation)
 
@@ -117,14 +117,6 @@ func FprintStackTrace(w io.Writer, callerLocation int) {
 			frame.Line,
 		)
 	}
-}
-
-// Crash cannot be recovered from, unlike the builtin panic().
-// Crash crashes regardless of build tag disable_assertions.
-func Crash(msg string, data ...any) {
-	FprintStackTrace(os.Stderr, 1)
-	fmt.Fprintf(os.Stderr, msg, data...)
-	os.Exit(1)
 }
 
 // InjectFault randomly triggers a fault for testing purposes, based on the given percentage.

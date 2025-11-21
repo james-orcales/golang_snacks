@@ -2,8 +2,16 @@
 
 package invariant
 
-var AssertionFailureCallback = func(msg string) {
-}
+var (
+	AssertionFailureCallback = func(msg string) {
+	}
+
+	DefaultAssertionFailureCallbackFatal = func(msg string) {
+	}
+
+	DefaultAssertionFailureCallbackPanic = func(msg string) {
+	}
+)
 
 func RegisterPackagesForAnalysis(dirs ...string) {
 }

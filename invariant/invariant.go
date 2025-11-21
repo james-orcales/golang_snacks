@@ -70,23 +70,43 @@ import (
 // a non-crashing callback allows users to handle assertion failures gracefully,
 // for example by logging or recovering in long-running applications like web
 // servers. See examples/backend for usage.
-var AssertionFailureCallback = func(msg string) {
-	Crash(msg)
-}
-
-type metadata struct {
-	Frequency int
-	Message   string
-	Kind      string
-}
-
 var (
+	AssertionFailureCallback = DefaultAssertionFailureCallbackFatal
+	/*
+		Used to detect panics caused by assertion failures
+		defer func() {
+			if err := recover(); err != nil {
+				if strErr, ok := err.(string); ok && strings.HasPrefix(strErr, invariant.AssertionFailureMsgPrefix) {
+					// handle assertion failure
+				}
+			}
+		}()
+
+	*/
+	AssertionFailureMsgPrefix = "🚨 Assertion Failure 🚨"
+
+	DefaultAssertionFailureCallbackFatal = func(msg string) {
+		FprintStackTrace(os.Stderr, 1)
+		fmt.Fprintln(os.Stderr, msg)
+		os.Exit(1)
+	}
+
+	DefaultAssertionFailureCallbackPanic = func(msg string) {
+		panic(msg)
+	}
+
 	// packagesToAnalyze defaults to the current testing package.
 	packagesToAnalyze = []string{"."}
 	// assertionTracker globally tracks true assertions inside packagesToAnalyze.
 	assertionTracker        = make(map[string]*metadata, maxAssertionsPerPackage*len(packagesToAnalyze))
 	assertionFrequencyMutex = sync.Mutex{}
 )
+
+type metadata struct {
+	Frequency int
+	Message   string
+	Kind      string
+}
 
 // registerAssertion records in the package-global assertion tracker that an
 // assertion was evaluated as true at the current source location. It tracks the
@@ -140,7 +160,7 @@ func RegisterPackagesForAnalysis(dirs ...string) {
 	for i, path := range packagesToAnalyze {
 		path, err := filepath.Abs(path)
 		if err != nil || path == "" {
-			Crash(fmt.Sprintf("Failed to convert package path to absolute path: %s", err))
+			panic(fmt.Sprintf("Failed to convert package path to absolute path: %s\n", err))
 		}
 		packagesToAnalyze[i] = path
 	}
@@ -165,7 +185,7 @@ func RegisterPackagesForAnalysis(dirs ...string) {
 			return nil
 		})
 		if err != nil {
-			Crash("Collecting all files to find missed invariants: ", err)
+			panic(fmt.Sprintf("Collecting all files to find missed invariants: %s\n", err))
 		}
 		after := len(files)
 		Always(before < after, "The directory contains go files")
@@ -351,7 +371,7 @@ func Unimplemented(msg string) {
 	if msg == "" {
 		msg = "<empty>"
 	}
-	AssertionFailureCallback(fmt.Sprintf("🚨 Assertion Failure 🚨: %s\n", msg))
+	AssertionFailureCallback(fmt.Sprintf("%s: %s\n", AssertionFailureMsgPrefix, msg))
 }
 
 //go:noinline
@@ -359,7 +379,7 @@ func Unreachable(msg string) {
 	if msg == "" {
 		msg = "<empty>"
 	}
-	AssertionFailureCallback(fmt.Sprintf("🚨 Assertion Failure 🚨: %s\n", msg))
+	AssertionFailureCallback(fmt.Sprintf("%s: %s\n", AssertionFailureMsgPrefix, msg))
 }
 
 // Always calls AssertionFailureCallback if cond is false. If you need
@@ -395,7 +415,7 @@ func Always(cond bool, msg string) {
 	if cond {
 		registerAssertion("Always", msg)
 	} else {
-		AssertionFailureCallback(fmt.Sprintf("🚨 Assertion Failure 🚨: %s\n", msg))
+		AssertionFailureCallback(fmt.Sprintf("%s: %s\n", AssertionFailureMsgPrefix, msg))
 	}
 }
 
@@ -425,7 +445,7 @@ func AlwaysNil(x interface{}, msg string) {
 	if x == nil {
 		registerAssertion("AlwaysNil", msg)
 	} else {
-		AssertionFailureCallback(fmt.Sprintf("🚨 Assertion Failure 🚨: expected nil. got %v. %s\n", x, msg))
+		AssertionFailureCallback(fmt.Sprintf("%s: expected nil. got %v. %s\n", AssertionFailureMsgPrefix, x, msg))
 	}
 }
 
@@ -443,7 +463,7 @@ func AlwaysErrIs(actual error, msg string, targets ...error) {
 			return
 		}
 	}
-	AssertionFailureCallback(fmt.Sprintf("🚨 Assertion Failure 🚨: error did not match any targets. got %q. %s\n", actual, msg))
+	AssertionFailureCallback(fmt.Sprintf("%s: error did not match any targets. got %q. %s\n", AssertionFailureMsgPrefix, actual, msg))
 }
 
 // AlwaysErrIsNot calls AssertionFailureCallback if actual is one of the
@@ -456,7 +476,7 @@ func AlwaysErrIsNot(actual error, msg string, targets ...error) {
 	for _, t := range targets {
 		Always(t != nil, "invariant.AlwaysErrIsNot() targets must not be nil")
 		if errors.Is(actual, t) {
-			AssertionFailureCallback(fmt.Sprintf("🚨 Assertion Failure 🚨: error unexpectedly matched a target. got %q. %s\n", actual, msg))
+			AssertionFailureCallback(fmt.Sprintf("%s: error unexpectedly matched a target. got %q. %s\n", AssertionFailureMsgPrefix, actual, msg))
 			return
 		}
 	}
@@ -485,7 +505,7 @@ func XAlways(fn func() bool, msg string) {
 	if fn() {
 		registerAssertion("XAlways", msg)
 	} else {
-		AssertionFailureCallback(fmt.Sprintf("🚨 Assertion Failure 🚨: %s\n", msg))
+		AssertionFailureCallback(fmt.Sprintf("%s: %s\n", AssertionFailureMsgPrefix, msg))
 	}
 }
 
@@ -504,7 +524,7 @@ func XAlwaysNil(fn func() interface{}, msg string) {
 	if x == nil {
 		registerAssertion("XAlwaysNil", msg)
 	} else {
-		AssertionFailureCallback(fmt.Sprintf("🚨 Assertion Failure 🚨: expected nil. got %v. %s\n", x, msg))
+		AssertionFailureCallback(fmt.Sprintf("%s: expected nil. got %v. %s\n", AssertionFailureMsgPrefix, x, msg))
 	}
 }
 
@@ -523,7 +543,7 @@ func XAlwaysErrIs(fn func() error, msg string, targets ...error) {
 			return
 		}
 	}
-	AssertionFailureCallback(fmt.Sprintf("🚨 Assertion Failure 🚨: error did not match any targets. got %q. %s\n", actual, msg))
+	AssertionFailureCallback(fmt.Sprintf("%s: error did not match any targets. got %q. %s\n", AssertionFailureMsgPrefix, actual, msg))
 }
 
 // XAlwaysErrIsNot evaluates fn and calls AssertionFailureCallback if the returned error matches any target.
@@ -537,7 +557,7 @@ func XAlwaysErrIsNot(fn func() error, msg string, targets ...error) {
 	actual := fn()
 	for _, t := range targets {
 		if errors.Is(actual, t) {
-			AssertionFailureCallback(fmt.Sprintf("🚨 Assertion Failure 🚨: error unexpectedly matched a target. got %q. %s\n", actual, msg))
+			AssertionFailureCallback(fmt.Sprintf("%s: error unexpectedly matched a target. got %q. %s\n", AssertionFailureMsgPrefix, actual, msg))
 			return
 		}
 	}
