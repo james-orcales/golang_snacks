@@ -1,38 +1,3 @@
-/*
-itlog is a performant, zero-allocation, logger (~800 SLoC) inspired by ZeroLog (~16k SLoC).
-FWIW, this code was written AI-free :)
-
-Design Decisions:
-
- 1. Format
-
-    .......Header.....|.Body..\n
-    time|level|message|context\n
-
-    The format is split into the Header and Body. The header is a fixed-width
-    chunk, holding fields that are present in all logs. It is split into
-    sub-components (1) time, (2) log level, (3) and message, all separated by
-    the ComponentDelimiter. The body is a variable-width chunk, holding
-    dynamically appended fields. It consists of key=value pairs separated by
-    ComponentDelimiter and delimited by KeyValDelimiter. Keys with
-    multiple values are appended as individual pairs len(values) times in the
-    context, sharing the same key.
-
-    A key characteristic of this design is that it simplifies escaping. There
-    are only two special characters to escape.
-
-    - Newline (delimits each log event)
-    - Null byte (An unescaped null byte within the log is an implementation error)
-
- 2. No colored output
-    At first, I implemented colored output. In practice however, the colors are
-    not all that useful when the context gets large and your terminal screen is
-    filled with text that hard wrap, breaking visual alignment of the logs. It's
-    better to save the logs in a file and explore them in your editor. Another
-    benefit is that this simplifies the implementation further.
-
-    TODO: Add a log parser.
-*/
 package itlog
 
 import (
@@ -87,6 +52,8 @@ var (
 
 // === Encoding ===
 //
+// - backslash (0x5C)    -> `\\`
+// - quote     (0x22)    -> `\"`
 // - newline   (0x0A)    -> `\n`
 // - nullbyte  (0x00)    -> `\0`
 //
@@ -98,7 +65,7 @@ var (
 // Other non-readable characters remain unchanged.
 // UTF is not handled.
 //
-// The resulting encoding is **lossy** — it cannot be decoded back to the original data.
+// The resulting encoding is **lossless** — it can be decoded back to the original data.
 func appendEscaped(dst, src []byte) []byte {
 	invariant.Always(dst != nil, "appendEscaped must receive a non-nil slice pointer")
 	invariant.Always(src != nil, "appendEscaped caller handles empty string argument")
@@ -111,6 +78,12 @@ func appendEscaped(dst, src []byte) []byte {
 	}()
 	for _, ch := range src {
 		switch ch {
+		case '\\':
+			invariant.Sometimes(true, "String to encode contains escaped bytes")
+			dst = append(dst, '\\', '\\')
+		case '"':
+			invariant.Sometimes(true, "String to encode contains Quote")
+			dst = append(dst, '\\', Quote)
 		case '\n':
 			invariant.Sometimes(true, "String to encode contains raw newline")
 			dst = append(dst, '\\', 'n')
@@ -126,7 +99,7 @@ func appendEscaped(dst, src []byte) []byte {
 
 func ValidateKey(key []byte) error {
 	if len(key) == 0 {
-		return errors.New("Key is not empty")
+		return errors.New("Key is empty")
 	}
 	period := 0
 	underscore := 0
@@ -140,174 +113,33 @@ func ValidateKey(key []byte) error {
 		case ch == '_':
 			underscore++
 		default:
-			return errors.New("Log context key only contains alphanumeric, periods, and underscores")
+			return errors.New("Log context key must contain alphanumeric, periods, and underscores only")
 		}
 	}
 	if period == len(key) {
-		return errors.New("Log context does not only contain periods")
+		return errors.New("Log context must not only contain periods")
 	} else if underscore == len(key) {
-		return errors.New("Log context does not only contain underscores")
+		return errors.New("Log context must not only contain underscores")
 	} else if period+underscore == len(key) {
-		return errors.New("Log context does not only contain periods and underscores")
+		return errors.New("Log context must not only contain periods and underscores")
 	}
 	return nil
 }
 
-// === PRIMITIVES ===
-
-// Primitive
-// data appends a key-value pair to the _Event context.
-func (event *_Event) data(key, val []byte) *_Event {
-	if event == nil {
-		invariant.Unreachable("event.data callers don't propagate nil events")
-		return nil
-	}
-	if key == nil {
-		key = EmptyIndicatorBytes
-	}
-	if val == nil {
-		val = EmptyIndicatorBytes
-	}
-	invariant.AlwaysNil(ValidateKey(key), "Log context key is valid")
-	event.Buffer = append(event.Buffer, key...)
-	event.Buffer = append(event.Buffer, KeyValDelimiter)
-	event.Buffer = append(event.Buffer, val...)
-	event.Buffer = append(event.Buffer, ComponentDelimiter)
-	return event
-}
-
-// Primitive
-// String context values are wrapped in quotes. Quote characters inside the
-// value are left unescaped. Parsing requires at least two quote delimiters;
-// everything between them is taken literally.
-func (event *_Event) Str(key, val string) *_Event {
-	if event == nil {
-		invariant.Sometimes(true, "event.Str event is nil")
-		return nil
-	}
-	if key == "" {
-		key = EmptyIndicatorString
-	}
-	if val == "" {
-		val = EmptyIndicatorString
-	}
-	invariant.AlwaysNil(ValidateKey(stringToBytesUnsafe(key)), "Log context key is valid")
-	invariant.Sometimes(true, "Add context to event")
-
-	event.Buffer = appendEscaped(event.Buffer, stringToBytesUnsafe(key))
-	event.Buffer = append(event.Buffer, KeyValDelimiter)
-	event.Buffer = append(event.Buffer, Quote)
-	event.Buffer = appendEscaped(event.Buffer, stringToBytesUnsafe(val))
-	event.Buffer = append(event.Buffer, Quote)
-	event.Buffer = append(event.Buffer, ComponentDelimiter)
-
-	return event
-}
-
-// Primitive
-// Similar to data but for integers.
-func (event *_Event) number(key string, val int64) *_Event {
-	invariant.Always(event != nil, "Callers of event.number don't propagate nil events")
-	if key == "" {
-		invariant.Sometimes(true, "event.number key is empty")
-		key = EmptyIndicatorString
-	}
-	invariant.AlwaysNil(ValidateKey(stringToBytesUnsafe(key)), "Log context key is valid")
-	invariant.Sometimes(true, "Add number context to event")
-
-	event.Buffer = append(event.Buffer, stringToBytesUnsafe(key)...)
-	event.Buffer = append(event.Buffer, KeyValDelimiter)
-	event.Buffer = strconv.AppendInt(event.Buffer, val, 10)
-	event.Buffer = append(event.Buffer, ComponentDelimiter)
-
-	return event
-}
-
-// Primitive
-// Exists separately from number because uint64 values may exceed int64 range.
-func (event *_Event) Uint64(key string, val uint64) *_Event {
-	if event == nil {
-		invariant.Sometimes(true, "event.Uint64 _Event is nil")
-		return nil
-	}
-	if key == "" {
-		invariant.Sometimes(true, "event.Uint64 key is empty")
-		key = EmptyIndicatorString
-	}
-	invariant.AlwaysNil(ValidateKey(stringToBytesUnsafe(key)), "Log context key is valid")
-	invariant.Sometimes(true, "Add uint64 context to event")
-	event.Buffer = append(event.Buffer, stringToBytesUnsafe(key)...)
-	event.Buffer = append(event.Buffer, KeyValDelimiter)
-	event.Buffer = strconv.AppendUint(event.Buffer, val, 10)
-	event.Buffer = append(event.Buffer, ComponentDelimiter)
-	return event
-}
-
-// Primitive
-// With* functions create a deep copy of logger and appends context to the Buffer.
-func (lgr *Logger) withData(key, val []byte) *Logger {
+func (lgr *Logger) Clone() *Logger {
 	if lgr == nil {
-		invariant.Unreachable("logger.withData callers don't propagate nil loggers")
+		invariant.Unreachable("Logger.Clone callers don't propagate nil loggers")
 		return nil
 	}
-	if key == nil {
-		invariant.Sometimes(true, "logger.withData callers don't propagate empty keys")
-		key = EmptyIndicatorBytes
-	}
-	if val == nil {
-		invariant.Unreachable("logger.withData callers don't propagate empty vals")
-		val = EmptyIndicatorBytes
-	}
-	ValidateKey(key)
-	invariant.Sometimes(true, "Add context to logger")
+
+	invariant.Always(cap(lgr.Buffer) >= DefaultLoggerBufferCapacity, "All loggers have at least DefaultLoggerBufferCapacity")
 	invariant.Sometimes(len(lgr.Buffer) == 0, "Logger has no inheritable context")
-	invariant.Sometimes(len(lgr.Buffer) > 0, "Logger already has inheritable context")
+	invariant.Sometimes(len(lgr.Buffer) > 0, "Logger has inheritable context")
 
 	dst := New(lgr.Writer, lgr.Level)
-
 	// Assume that the inherited buffer was already processed by appendEscaped
 	dst.Buffer = append(dst.Buffer, lgr.Buffer...)
-	dst.Buffer = appendEscaped(dst.Buffer, key)
-	dst.Buffer = append(dst.Buffer, KeyValDelimiter)
-	dst.Buffer = appendEscaped(dst.Buffer, val)
-	dst.Buffer = append(dst.Buffer, ComponentDelimiter)
 
-	invariant.Always(dst.Buffer[0] != ComponentDelimiter, "Logger's context is appended AFTER ComponentDelimiter")
-	return dst
-}
-
-// Primitive
-// With* functions create a deep copy of logger and appends context to the Buffer.
-func (logger *Logger) WithStr(key, val string) *Logger {
-	if logger == nil {
-		invariant.Sometimes(true, "logger.WithStr Logger is nil")
-		return nil
-	}
-	if key == "" {
-		invariant.Sometimes(true, "logger.WithStr key is empty")
-		key = EmptyIndicatorString
-	}
-	if val == "" {
-		invariant.Sometimes(true, "logger.WithStr val is empty")
-		val = EmptyIndicatorString
-	}
-	invariant.AlwaysNil(ValidateKey(stringToBytesUnsafe(key)), "Log context key is valid")
-	invariant.Sometimes(true, "Add context to logger")
-	invariant.Sometimes(len(logger.Buffer) == 0, "Logger has no inheritable context")
-	invariant.Sometimes(len(logger.Buffer) > 0, "Logger already has inheritable context")
-
-	dst := New(logger.Writer, logger.Level)
-
-	// Assume that the inherited buffer was already processed by appendEscaped
-	dst.Buffer = append(dst.Buffer, logger.Buffer...)
-	dst.Buffer = append(dst.Buffer, stringToBytesUnsafe(key)...)
-	dst.Buffer = append(dst.Buffer, KeyValDelimiter)
-	dst.Buffer = append(dst.Buffer, Quote)
-	dst.Buffer = appendEscaped(dst.Buffer, stringToBytesUnsafe(val))
-	dst.Buffer = append(dst.Buffer, Quote)
-	dst.Buffer = append(dst.Buffer, ComponentDelimiter)
-
-	invariant.Always(dst.Buffer[0] != ComponentDelimiter, "Logger's context is appended AFTER ComponentDelimiter")
 	return dst
 }
 
@@ -327,204 +159,409 @@ func New(writer io.Writer, level int) *Logger {
 	}
 }
 
-func (logger *Logger) Debug() *_Event {
-	if logger == nil {
-		invariant.Sometimes(true, "logger.Debug Logger is nil")
+func (lgr *Logger) Debug() *Event {
+	if lgr == nil {
+		invariant.Sometimes(true, "Logger.Debug Logger is nil")
 		return nil
-	} else if logger.Level > LevelDebug {
+	} else if lgr.Level > LevelDebug {
 		invariant.Sometimes(true, "Debug level and below is disabled")
 		return nil
 	}
 	invariant.Sometimes(true, "Create debug log")
-	return logger.newEvent("DBG")
+	return lgr.newEvent("DBG")
 }
 
-func (logger *Logger) Info() *_Event {
-	if logger == nil {
-		invariant.Sometimes(true, "logger.Info Logger is nil")
+func (lgr *Logger) Info() *Event {
+	if lgr == nil {
+		invariant.Sometimes(true, "Logger.Info Logger is nil")
 		return nil
-	} else if logger.Level > LevelInfo {
+	} else if lgr.Level > LevelInfo {
 		invariant.Sometimes(true, "Info level and below is disabled")
 		return nil
 	}
 	invariant.Sometimes(true, "Create info log")
-	return logger.newEvent("INF")
+	return lgr.newEvent("INF")
 }
 
-func (logger *Logger) Warn() *_Event {
-	if logger == nil {
-		invariant.Sometimes(true, "logger.Warn Logger is nil")
+func (lgr *Logger) Warn() *Event {
+	if lgr == nil {
+		invariant.Sometimes(true, "Logger.Warn Logger is nil")
 		return nil
-	} else if logger.Level > LevelWarn {
+	} else if lgr.Level > LevelWarn {
 		invariant.Sometimes(true, "Warn level and below is disabled")
 		return nil
 	}
 	invariant.Sometimes(true, "Create warn log")
-	return logger.newEvent("WRN")
+	return lgr.newEvent("WRN")
 }
 
 // The errs parameter is mainly convenience. One benefit of it however, the
 // error is ensured to be the first key value pair in the context if the parent
 // logger doesn't have a context to inherit.
-func (logger *Logger) Error(errs ...error) *_Event {
-	if logger == nil {
-		invariant.Sometimes(true, "logger.Error Logger is nil")
+func (lgr *Logger) Error(errs ...error) *Event {
+	if lgr == nil {
+		invariant.Sometimes(true, "Logger.Error Logger is nil")
 		return nil
-	} else if logger.Level > LevelError {
-		invariant.Sometimes(true, "logger.Error error level and below is disabled")
+	} else if lgr.Level > LevelError {
+		invariant.Sometimes(true, "Logger.Error error level and below is disabled")
 		return nil
 	}
-	event := logger.newEvent("ERR")
+	ev := lgr.newEvent("ERR")
 	switch len(errs) {
 	case 0:
-		invariant.Sometimes(true, "logger.Error has zero arguments")
+		invariant.Sometimes(true, "Logger.Error has zero arguments")
 		noop()
 	case 1:
-		invariant.Sometimes(true, "logger.Error has one argument")
-		event = event.Err(errs[0])
+		invariant.Sometimes(true, "Logger.Error has one argument")
+		ev = ev.Err(errs[0])
 	default:
-		invariant.Sometimes(true, "logger.Error has multiple arguments")
-		event = event.Errs(errs...)
+		invariant.Sometimes(true, "Logger.Error has multiple arguments")
+		ev = ev.Errs(errs...)
 	}
-	return event
+	return ev
 }
 
-func (logger *Logger) WithTime(key string, t time.Time) *Logger {
-	if logger == nil {
-		invariant.Sometimes(true, "logger.WithTime Logger is nil")
+func (lgr *Logger) WithData(key, val []byte) *Logger {
+	if lgr == nil {
+		invariant.Sometimes(true, "Logger.WithData Logger is nil")
+		return nil
+	}
+	// These are invalid but we want this logger to be fault tolerant
+	if len(key) == 0 {
+		invariant.Sometimes(true, "Logger.WithData key is empty")
+		key = EmptyIndicatorBytes
+	}
+	if len(val) == 0 {
+		invariant.Sometimes(true, "Logger.WithData val is empty")
+		val = EmptyIndicatorBytes
+	}
+	invariant.XAlwaysNil(func() any { return ValidateKey(key) }, "Log context key is valid")
+
+	lgr.Buffer = append(lgr.Buffer, key...)
+	lgr.Buffer = append(lgr.Buffer, KeyValDelimiter)
+	lgr.Buffer = append(lgr.Buffer, val...)
+	lgr.Buffer = append(lgr.Buffer, ComponentDelimiter)
+
+	invariant.Always(lgr.Buffer[0] != ComponentDelimiter, "Logger's context is appended AFTER ComponentDelimiter")
+	return lgr
+}
+
+// With* functions create a deep copy of logger and appends context to the Buffer.
+func (lgr *Logger) WithStr(key, val string) *Logger {
+	if lgr == nil {
+		invariant.Sometimes(true, "Logger.WithStr Logger is nil")
+		return nil
+	}
+	// These are invalid but we want this logger to be fault tolerant
+	if key == "" {
+		invariant.Sometimes(true, "Logger.WithStr key is empty")
+		key = EmptyIndicatorString
+	}
+	if val == "" {
+		invariant.Sometimes(true, "Logger.WithStr val is empty")
+		val = EmptyIndicatorString
+	}
+	invariant.XAlwaysNil(func() any { return ValidateKey(stringToBytesUnsafe(key)) }, "Log context key is valid")
+
+	lgr.Buffer = append(lgr.Buffer, stringToBytesUnsafe(key)...)
+	lgr.Buffer = append(lgr.Buffer, KeyValDelimiter)
+	lgr.Buffer = append(lgr.Buffer, Quote)
+	lgr.Buffer = appendEscaped(lgr.Buffer, stringToBytesUnsafe(val))
+	lgr.Buffer = append(lgr.Buffer, Quote)
+	lgr.Buffer = append(lgr.Buffer, ComponentDelimiter)
+
+	invariant.Always(lgr.Buffer[0] != ComponentDelimiter, "Logger's context is appended AFTER ComponentDelimiter")
+	return lgr
+}
+
+func (lgr *Logger) WithErr(key string, val error) *Logger {
+	invariant.Sometimes(key == "", "Logger.WithErr is empty")
+	if lgr == nil {
+		invariant.Sometimes(true, "Logger.WithErr Logger is nil")
+		return nil
+	}
+	if val != nil {
+		lgr = lgr.WithStr(key, val.Error())
+	} else {
+		invariant.Sometimes(true, "Logger.WithErr got nil error")
+	}
+	return lgr
+}
+
+func (lgr *Logger) WithInt(key string, val int) *Logger {
+	invariant.Sometimes(key == "", "Logger.WithInt is empty")
+	if lgr == nil {
+		invariant.Sometimes(true, "Logger.WithInt Logger is nil")
+		return nil
+	}
+	return lgr.WithInt64(key, int64(val))
+}
+
+func (lgr *Logger) WithInt8(key string, val int8) *Logger {
+	invariant.Sometimes(key == "", "Logger.WithInt8 is empty")
+	if lgr == nil {
+		invariant.Sometimes(true, "Logger.WithInt8 Logger is nil")
+		return nil
+	}
+	return lgr.WithInt64(key, int64(val))
+}
+
+func (lgr *Logger) WithInt16(key string, val int16) *Logger {
+	invariant.Sometimes(key == "", "Logger.WithInt16 empty")
+	if lgr == nil {
+		invariant.Sometimes(true, "Logger.WithInt16 Logger is nil")
+		return nil
+	}
+	return lgr.WithInt64(key, int64(val))
+}
+
+func (lgr *Logger) WithInt32(key string, val int32) *Logger {
+	invariant.Sometimes(key == "", "Logger.WithInt32 empty")
+	if lgr == nil {
+		invariant.Sometimes(true, "Logger.WithInt32 Logger is nil")
+		return nil
+	}
+	return lgr.WithInt64(key, int64(val))
+}
+
+func (lgr *Logger) WithInt64(key string, val int64) *Logger {
+	invariant.Sometimes(key == "", "Logger.WithInt64 empty")
+	if lgr == nil {
+		invariant.Sometimes(true, "Logger.WithInt64 Logger is nil")
+		return nil
+	}
+
+	array := [64]byte{}
+	buf := array[:0]
+	buf = strconv.AppendInt(buf, val, 10)
+	return lgr.WithData(stringToBytesUnsafe(key), buf)
+}
+
+func (lgr *Logger) WithUint(key string, val uint) *Logger {
+	invariant.Sometimes(key == "", "Event.Uint is empty")
+	if lgr == nil {
+		invariant.Sometimes(true, "Logger.WithUint Logger is nil")
+		return nil
+	}
+	return lgr.WithInt64(key, int64(val))
+}
+
+func (lgr *Logger) WithUint8(key string, val uint8) *Logger {
+	invariant.Sometimes(key == "", "Event.Uint8 key is empty")
+	if lgr == nil {
+		invariant.Sometimes(true, "Logger.WithUint8 Logger is nil")
+		return nil
+	}
+	return lgr.WithInt64(key, int64(val))
+}
+
+func (lgr *Logger) WithUint16(key string, val uint16) *Logger {
+	invariant.Sometimes(key == "", "Event.Uint16 key is empty")
+	if lgr == nil {
+		invariant.Sometimes(true, "Logger.WithUint16 Logger is nil")
+		return nil
+	}
+	return lgr.WithInt64(key, int64(val))
+}
+
+func (lgr *Logger) WithUint32(key string, val uint32) *Logger {
+	invariant.Sometimes(key == "", "Event.Uint32 key is empty")
+	if lgr == nil {
+		invariant.Sometimes(true, "Logger.WithUint32 Logger is nil")
+		return nil
+	}
+	return lgr.WithInt64(key, int64(val))
+}
+
+func (lgr *Logger) WithUint64(key string, val uint64) *Logger {
+	invariant.Sometimes(key == "", "Event.Uint64 key is empty")
+	if lgr == nil {
+		invariant.Sometimes(true, "Logger.WithUint64 Logger is nil")
+		return nil
+	}
+	array := [64]byte{}
+	buf := array[:0]
+	buf = strconv.AppendUint(buf, val, 10)
+	return lgr.WithData(stringToBytesUnsafe(key), buf)
+}
+
+func (lgr *Logger) WithBool(key string, cond bool) *Logger {
+	invariant.Sometimes(key == "", "Event.WithBool key is empty")
+	if lgr == nil {
+		invariant.Sometimes(true, "Logger.WithBool Logger is nil")
+		return nil
+	}
+
+	val := []byte{'f', 'a', 'l', 's', 'e'}
+	if cond {
+		invariant.Sometimes(cond, "Logger.WithBool cond is true")
+		val = []byte{'t', 'r', 'u', 'e'}
+	}
+
+	return lgr.WithData(stringToBytesUnsafe(key), val)
+}
+
+func (lgr *Logger) WithFloat32(key string, val float32) *Logger {
+	invariant.Sometimes(key == "", "Event.WithFloat32 key is empty")
+	if lgr == nil {
+		invariant.Sometimes(true, "Logger.WithFloat32 Logger is nil")
+		return nil
+	}
+	// overcompensate
+	array := [32]byte{}
+	buf := array[:0]
+	buf = strconv.AppendFloat(buf, float64(val), 'e', -1, 32)
+	return lgr.WithData(stringToBytesUnsafe(key), buf)
+}
+
+func (lgr *Logger) WithFloat64(key string, val float64) *Logger {
+	invariant.Sometimes(key == "", "Event.WithFloat64 key is empty")
+	if lgr == nil {
+		invariant.Sometimes(true, "Logger.WithFloat64 Logger is nil")
+		return nil
+	}
+	// overcompensate
+	array := [64]byte{}
+	buf := array[:0]
+	buf = strconv.AppendFloat(buf, float64(val), 'e', -1, 64)
+	return lgr.WithData(stringToBytesUnsafe(key), buf)
+}
+
+func (lgr *Logger) WithTime(key string, t time.Time) *Logger {
+	invariant.Sometimes(key == "", "Logger.WithTime key is empty")
+	if lgr == nil {
+		invariant.Sometimes(true, "Logger.WithTime Logger is nil")
 		return nil
 	}
 	array := [TimestampCapacity]byte{}
 	buf := array[:0]
 	buf = appendTime(buf, t)
-	return logger.withData(stringToBytesUnsafe(key), buf)
-}
-
-func (logger *Logger) WithErr(key string, val error) *Logger {
-	if logger == nil {
-		invariant.Sometimes(true, "logger.WithErr Logger is nil")
-		return nil
-	}
-	if val != nil {
-		invariant.Sometimes(true, "Add err context to logger")
-		logger = logger.WithStr(key, val.Error())
-	} else {
-		invariant.Sometimes(true, "logger.WithErr got nil error")
-	}
-	return logger
-}
-
-func (ev *_Event) Float32(key string, val float32) *_Event {
-	if ev == nil {
-		invariant.Sometimes(true, "event.Float32 _Event is nil")
-		return nil
-	}
-	invariant.Sometimes(true, "Add number context to logger")
-	array := [33]byte{}
-	buf := array[:0]
-	buf = strconv.AppendFloat(buf, float64(val), 'f', -1, 32)
-	return ev.data(stringToBytesUnsafe(key), buf)
-}
-
-func (logger *Logger) withNumber(key string, val int64) *Logger {
-	if logger == nil {
-		invariant.Unreachable("logger.withNumber callers don't propagate nil loggers")
-		return nil
-	}
-	invariant.Sometimes(true, "Add number context to logger")
-	array := [64]byte{}
-	buf := array[:0]
-	buf = strconv.AppendInt(buf, val, 10)
-	return logger.withData(stringToBytesUnsafe(key), buf)
-}
-
-func (logger *Logger) WithInt8(key string, val int8) *Logger {
-	if logger == nil {
-		invariant.Sometimes(true, "logger.WithInt8 Logger is nil")
-		return nil
-	}
-	invariant.Sometimes(true, "Add int8 context to logger")
-	return logger.withNumber(key, int64(val))
-}
-
-func (logger *Logger) WithInt(key string, val int) *Logger {
-	if logger == nil {
-		invariant.Sometimes(true, "logger.WithInt Logger is nil")
-		return nil
-	}
-	invariant.Sometimes(true, "Add int context to logger")
-	return logger.withNumber(key, int64(val))
-}
-
-func (logger *Logger) WithUint64(key string, val uint64) *Logger {
-	if logger == nil {
-		invariant.Sometimes(true, "logger.withNumber Logger is nil")
-		return nil
-	}
-	invariant.Sometimes(true, "Add number context to logger")
-	array := [64]byte{}
-	buf := array[:0]
-	buf = strconv.AppendUint(buf, val, 10)
-	return logger.withData(stringToBytesUnsafe(key), buf)
-}
-
-func (logger *Logger) WithBool(key string, cond bool) *Logger {
-	if logger == nil {
-		invariant.Sometimes(true, "logger.WithBool Logger is nil")
-		return nil
-	}
-	val := []byte{'f', 'a', 'l', 's', 'e'}
-	if cond {
-		invariant.Sometimes(cond, "logger.WithBool cond is true")
-		val = []byte{'t', 'r', 'u', 'e'}
-	}
-	invariant.Sometimes(!cond, "logger.WithBool cond is false")
-	return logger.withData(stringToBytesUnsafe(key), val)
+	return lgr.WithData(stringToBytesUnsafe(key), buf)
 }
 
 // Convenience functions to help guide your message. With these prefixes, you'd
 // want to start with verbs in the present-progressive form.
 // Usage:
 //
-//	logger.Info().Begin("")
-func (event *_Event) Begin(msg string) {
-	if event == nil {
-		invariant.Sometimes(true, "event.Begin _Event is nil")
+//	lgr.Info().Begin("fetching zip")
+//	lgr.Info().Begin("extracting zip")
+func (ev *Event) Begin(msg string) {
+	if ev == nil {
+		invariant.Sometimes(true, "Event.Begin Event is nil")
 		return
 	}
-	event.Msg("begin " + msg)
+	invariant.Always(msg != "", "Empty Event.Begin verb")
+	ev.Msg("begin " + msg)
 }
 
 // Don't use these like tracing logs. Instead of deferring unconditionally,
 // manually write this as the very last statement of a function to indicate
 // success. Otherwise, you probably have some WARN/ERROR log outputted
 // beforehand, making it redundant.
-func (event *_Event) Done(msg string) {
-	if event == nil {
-		invariant.Sometimes(true, "event.Done _Event is nil")
+func (ev *Event) Done(msg string) {
+	if ev == nil {
+		invariant.Sometimes(true, "Event.Done Event is nil")
 		return
 	}
-	event.Msg("done  " + msg)
+	invariant.Always(msg != "", "Empty Event.Done verb")
+	ev.Msg("done  " + msg)
 }
 
-func (event *_Event) Err(err error) *_Event {
-	if event == nil {
-		invariant.Sometimes(event == nil, "event.Err _Event is nil")
+func (ev *Event) Data(key, val []byte) *Event {
+	if ev == nil {
+		invariant.Sometimes(true, "Event.Data event is nil")
 		return nil
 	}
-	if err != nil {
-		invariant.Sometimes(true, "Add error context to event")
-		event = event.Str("error", err.Error())
-	} else {
-		invariant.Sometimes(true, "event.Err got nil error")
+	// These are invalid but we want this logger to be fault tolerant
+	if len(key) == 0 {
+		invariant.Sometimes(true, "Event.Data key is empty")
+		key = EmptyIndicatorBytes
 	}
-	return event
+	if len(val) == 0 {
+		invariant.Sometimes(true, "Event.Data val is empty")
+		val = EmptyIndicatorBytes
+	}
+	invariant.XAlwaysNil(func() any { return ValidateKey(key) }, "Log context key is valid")
+
+	ev.Buffer = append(ev.Buffer, key...)
+	ev.Buffer = append(ev.Buffer, KeyValDelimiter)
+	ev.Buffer = append(ev.Buffer, val...)
+	ev.Buffer = append(ev.Buffer, ComponentDelimiter)
+
+	return ev
 }
 
-func (event *_Event) Errs(vals ...error) *_Event {
-	invariant.Always(len(vals) > 0, "event.Errs takes at least one error")
-	if event == nil {
-		invariant.Sometimes(event == nil, "event.Errs _Event is nil")
+// String context values are wrapped in quotes. Quote characters inside the
+// value are left unescaped. Parsing requires at least two quote delimiters;
+// everything between them is taken literally.
+func (ev *Event) Str(key, val string) *Event {
+	if ev == nil {
+		invariant.Sometimes(true, "Event.Str event is nil")
+		return nil
+	}
+	if key == "" {
+		invariant.Sometimes(true, "Event.Str string is empty")
+		key = EmptyIndicatorString
+	}
+	if val == "" {
+		invariant.Sometimes(true, "Event.Str val is empty")
+		val = EmptyIndicatorString
+	}
+	invariant.XAlwaysNil(func() any { return ValidateKey(stringToBytesUnsafe(key)) }, "Log context key is valid")
+
+	ev.Buffer = append(ev.Buffer, stringToBytesUnsafe(key)...)
+	ev.Buffer = append(ev.Buffer, KeyValDelimiter)
+	ev.Buffer = append(ev.Buffer, Quote)
+	ev.Buffer = appendEscaped(ev.Buffer, stringToBytesUnsafe(val))
+	ev.Buffer = append(ev.Buffer, Quote)
+	ev.Buffer = append(ev.Buffer, ComponentDelimiter)
+
+	return ev
+}
+
+func (ev *Event) Strs(key string, strs ...string) *Event {
+	if ev == nil {
+		invariant.Sometimes(true, "Event.Strs event is nil")
+		return nil
+	}
+	if len(strs) == 0 {
+		invariant.Unreachable("Event.Strs has at least one variable")
+		return ev
+	}
+	if key == "" {
+		key = EmptyIndicatorString
+	}
+	invariant.XAlwaysNil(func() any { return ValidateKey(stringToBytesUnsafe(key)) }, "Log context key is valid")
+
+	ev.Buffer = appendEscaped(ev.Buffer, stringToBytesUnsafe(key))
+	ev.Buffer = append(ev.Buffer, KeyValDelimiter, '[', ' ')
+	for _, str := range strs {
+		ev.Buffer = append(ev.Buffer, Quote)
+		ev.Buffer = appendEscaped(ev.Buffer, stringToBytesUnsafe(str))
+		ev.Buffer = append(ev.Buffer, Quote, ' ')
+	}
+	ev.Buffer = append(ev.Buffer, ']', ComponentDelimiter)
+
+	return ev
+}
+
+func (ev *Event) Err(err error) *Event {
+	if ev == nil {
+		invariant.Sometimes(ev == nil, "Event.Err Event is nil")
+		return nil
+	}
+	if err == nil {
+		invariant.Sometimes(true, "Event.Err got nil error")
+		return ev
+	}
+	ev = ev.Str("error", err.Error())
+	return ev
+}
+
+func (ev *Event) Errs(vals ...error) *Event {
+	invariant.Always(len(vals) > 0, "Event.Errs takes at least one error")
+	if ev == nil {
+		invariant.Sometimes(ev == nil, "Event.Errs Event is nil")
 		return nil
 	}
 	nilCount := 0
@@ -532,157 +569,184 @@ func (event *_Event) Errs(vals ...error) *_Event {
 		if v == nil {
 			nilCount++
 		} else {
-			event = event.Err(v)
+			ev = ev.Err(v)
 		}
 	}
-	invariant.Sometimes(nilCount == 0, "All arguments to event.<level>.Errs are non-nil")
-	invariant.Sometimes(nilCount > 0, "Some arguments to event.<level>.Errs are non-nil")
-	invariant.Sometimes(nilCount == len(vals), "All arguments to event.<level>.Errs are nil")
-	return event
+	invariant.Sometimes(nilCount == 0, "All arguments to Event.<level>.Errs are non-nil")
+	invariant.Sometimes(nilCount > 0, "Some arguments to Event.<level>.Errs are non-nil")
+	invariant.Sometimes(nilCount == len(vals), "All arguments to Event.<level>.Errs are nil")
+	return ev
 }
 
-func (event *_Event) Int(key string, val int) *_Event {
-	if event == nil {
-		invariant.Sometimes(true, "event.Int _Event is nil")
+func (ev *Event) Int(key string, val int) *Event {
+	if ev == nil {
+		invariant.Sometimes(true, "Event.Int Event is nil")
 		return nil
 	}
-	invariant.Sometimes(true, "Add int context to event")
-	return event.number(key, int64(val))
+	return ev.Int64(key, int64(val))
 }
 
-func (event *_Event) Int8(key string, val int8) *_Event {
-	if event == nil {
-		invariant.Sometimes(true, "event.Int8 _Event is nil")
+func (ev *Event) Int8(key string, val int8) *Event {
+	if ev == nil {
+		invariant.Sometimes(true, "Event.Int8 Event is nil")
 		return nil
 	}
-	invariant.Sometimes(true, "Add int8 context to event")
-	return event.number(key, int64(val))
+	return ev.Int64(key, int64(val))
 }
 
-func (event *_Event) Int16(key string, val int16) *_Event {
-	if event == nil {
-		invariant.Sometimes(true, "event.Int16 _Event is nil")
+func (ev *Event) Int16(key string, val int16) *Event {
+	if ev == nil {
+		invariant.Sometimes(true, "Event.Int16 Event is nil")
 		return nil
 	}
-	return event.number(key, int64(val))
+	return ev.Int64(key, int64(val))
 }
 
-func (event *_Event) Int32(key string, val int32) *_Event {
-	if event == nil {
-		invariant.Sometimes(true, "event.Int32 _Event is nil")
+func (ev *Event) Int32(key string, val int32) *Event {
+	if ev == nil {
+		invariant.Sometimes(true, "Event.Int32 Event is nil")
 		return nil
 	}
-	invariant.Sometimes(true, "Add int32 context to event")
-	return event.number(key, int64(val))
+	return ev.Int64(key, int64(val))
 }
 
-func (event *_Event) Int64(key string, val int64) *_Event {
-	if event == nil {
-		invariant.Sometimes(true, "event.Int64 _Event is nil")
+func (ev *Event) Int64(key string, val int64) *Event {
+	invariant.Sometimes(key == "", "Event.Int64 key is not empty")
+	if ev == nil {
+		invariant.Sometimes(true, "Event.Int64 Event is nil")
 		return nil
 	}
-	return event.number(key, int64(val))
-}
-
-func (event *_Event) Uint(key string, val uint) *_Event {
-	if event == nil {
-		invariant.Sometimes(true, "event.Uint _Event is nil")
-		return nil
-	}
-	invariant.Sometimes(true, "Add uint context to event")
-	return event.Uint64(key, uint64(val))
-}
-
-func (event *_Event) Uint8(key string, val uint8) *_Event {
-	if event == nil {
-		invariant.Sometimes(true, "event.Uint8 _Event is nil")
-		return nil
-	}
-	invariant.Sometimes(true, "Add uint8 context to event")
-	return event.number(key, int64(val))
-}
-
-func (event *_Event) Uint16(key string, val uint16) *_Event {
-	if event == nil {
-		invariant.Sometimes(true, "event.Uint16 _Event is nil")
-		return nil
-	}
-	invariant.Sometimes(true, "Add uint16 context to event")
-	return event.number(key, int64(val))
-}
-
-func (event *_Event) Uint32(key string, val uint32) *_Event {
-	if event == nil {
-		invariant.Sometimes(true, "event.Uint32 _Event is nil")
-		return nil
-	}
-	invariant.Sometimes(true, "Add uint32 context to event")
-	return event.number(key, int64(val))
-}
-
-func (logger *Logger) WithFloat32(key string, val float32) *Logger {
-	if logger == nil {
-		invariant.Sometimes(true, "logger.WithFloat32 Logger is nil")
-		return nil
-	}
-	invariant.Sometimes(true, "Add number context to logger")
-	array := [33]byte{}
+	array := [64]byte{}
 	buf := array[:0]
-	buf = strconv.AppendFloat(buf, float64(val), 'f', -1, 32)
-	return logger.withData(stringToBytesUnsafe(key), buf)
+	buf = strconv.AppendInt(buf, val, 10)
+	return ev.Data(stringToBytesUnsafe(key), buf)
 }
 
-func (event *_Event) Bool(key string, cond bool) *_Event {
-	if event == nil {
-		invariant.Sometimes(true, "event.Bool _Event is nil")
+func (ev *Event) Uint(key string, val uint) *Event {
+	invariant.Sometimes(key == "", "Event.Uint key is not empty")
+	if ev == nil {
+		invariant.Sometimes(true, "Event.Uint Event is nil")
 		return nil
 	}
-	val := "false"
-	if cond {
-		val = "true"
-	}
-	invariant.Sometimes(true, "Add bool context to event")
-	invariant.Sometimes(val == "true", "event.Bool has value true")
-	invariant.Sometimes(val == "false", "event.Bool has value false")
-	return event.data(stringToBytesUnsafe(key), stringToBytesUnsafe(val))
+	return ev.Uint64(key, uint64(val))
 }
 
-func (event *_Event) Time(key string, t time.Time) *_Event {
-	if event == nil {
-		invariant.Sometimes(true, "event.Time _Event is nil")
+func (ev *Event) Uint8(key string, val uint8) *Event {
+	invariant.Sometimes(key == "", "Event.Uint8 key is not empty")
+	if ev == nil {
+		invariant.Sometimes(true, "Event.Uint8 Event is nil")
+		return nil
+	}
+	return ev.Int64(key, int64(val))
+}
+
+func (ev *Event) Uint16(key string, val uint16) *Event {
+	invariant.Sometimes(key == "", "Event.Uint16 key is not empty")
+	if ev == nil {
+		invariant.Sometimes(true, "Event.Uint16 Event is nil")
+		return nil
+	}
+	return ev.Int64(key, int64(val))
+}
+
+func (ev *Event) Uint32(key string, val uint32) *Event {
+	invariant.Sometimes(key == "", "Event.Uint32 key is not empty")
+	if ev == nil {
+		invariant.Sometimes(true, "Event.Uint32 Event is nil")
+		return nil
+	}
+	return ev.Int64(key, int64(val))
+}
+
+func (ev *Event) Uint64(key string, val uint64) *Event {
+	invariant.Sometimes(key == "", "Event.Uint64 key is not empty")
+	if ev == nil {
+		invariant.Sometimes(true, "Event.Uint64 Event is nil")
+		return nil
+	}
+	array := [64]byte{}
+	buf := array[:0]
+	buf = strconv.AppendUint(buf, val, 10)
+	return ev.Data(stringToBytesUnsafe(key), buf)
+}
+
+func (ev *Event) Float32(key string, val float32) *Event {
+	invariant.Sometimes(key == "", "Event.Float32 key is empty")
+	if ev == nil {
+		invariant.Sometimes(true, "Event.Float32 Event is nil")
+		return nil
+	}
+	// overcompensate
+	array := [32]byte{}
+	buf := array[:0]
+	buf = strconv.AppendFloat(buf, float64(val), 'e', -1, 32)
+	return ev.Data(stringToBytesUnsafe(key), buf)
+}
+
+func (ev *Event) Float64(key string, val float64) *Event {
+	invariant.Sometimes(key == "", "Event.Float64 key is empty")
+	if ev == nil {
+		invariant.Sometimes(true, "Event.Float64 Event is nil")
+		return nil
+	}
+	// overcompensate
+	array := [64]byte{}
+	buf := array[:0]
+	buf = strconv.AppendFloat(buf, float64(val), 'e', -1, 64)
+	return ev.Data(stringToBytesUnsafe(key), buf)
+}
+
+func (ev *Event) Bool(key string, cond bool) *Event {
+	if ev == nil {
+		invariant.Sometimes(true, "Event.Bool Event is nil")
+		return nil
+	}
+	val := []byte{'f', 'a', 'l', 's', 'e'}
+	if cond {
+		invariant.Sometimes(cond, "Event.Bool cond is true")
+		val = []byte{'t', 'r', 'u', 'e'}
+	}
+	invariant.Sometimes(!cond, "Event.Bool cond is false")
+
+	return ev.Data(stringToBytesUnsafe(key), val)
+}
+
+func (ev *Event) Time(key string, t time.Time) *Event {
+	invariant.Sometimes(key == "", "Event.Time key is empty")
+	if ev == nil {
+		invariant.Sometimes(true, "Event.Time Logger is nil")
 		return nil
 	}
 	array := [TimestampCapacity]byte{}
 	buf := array[:0]
 	buf = appendTime(buf, t)
-	return event.data(stringToBytesUnsafe(key), buf)
+	return ev.Data(stringToBytesUnsafe(key), buf)
 }
 
 // Msg is a short summary of your log entry, similar to a git commit message.
 // Msg asserts that msg does not contain a raw newline or raw null byte.
 // If msg is longer than MessageCapacity, it gets truncated with no indicator.
-func (event *_Event) Msg(msg string) {
-	if event == nil {
-		invariant.Sometimes(true, "event.Msg event is nil")
+func (ev *Event) Msg(msg string) {
+	if ev == nil {
+		invariant.Sometimes(true, "Event.Msg event is nil")
 		return
 	}
-	defer event.destroy()
+	defer ev.destroy()
 
 	invariant.Sometimes(len(msg) < MessageCapacity, "Message didn't fill the sub buffer")
 	invariant.Sometimes(len(msg) == MessageCapacity, "Message fills the sub buffer exactly")
 	invariant.Sometimes(len(msg) > MessageCapacity, "Message overfills the sub buffer")
 	if msg == "" {
 		invariant.Sometimes(true, "Log message is empty")
-		msg = EmptyIndicatorString
 	}
 
 	// insert message
 	{
 		start := HeaderCapacity - MessageCapacity
 		end := HeaderCapacity
-		invariant.Always(len(event.Buffer) >= end, "Length is unsafely set past message buffer during event init")
+		invariant.Always(len(ev.Buffer) >= end, "Length is unsafely set past message buffer during event init")
 
-		buf := event.Buffer[start:end]
+		buf := ev.Buffer[start:end]
 		i := 0
 		for ; i < min(len(buf), len(msg)); i++ {
 			ch := msg[i]
@@ -699,25 +763,25 @@ func (event *_Event) Msg(msg string) {
 
 	// assert valid log
 	{
-		_, err := time.Parse(time.RFC3339, bytesToStringUnsafe(event.Buffer[:TimestampCapacity]))
+		_, err := time.Parse(time.RFC3339, bytesToStringUnsafe(ev.Buffer[:TimestampCapacity]))
 		invariant.Always(err == nil, "Timestamp is valid RFC3339")
-		invariant.Always(event.Buffer[TimestampCapacity] == ComponentDelimiter, "ComponentDelimiter found after timestamp")
+		invariant.Always(ev.Buffer[TimestampCapacity] == ComponentDelimiter, "ComponentDelimiter found after timestamp")
 		invariant.Always(func() bool {
-			switch bytesToStringUnsafe(event.Buffer[TimestampCapacity+1 : TimestampCapacity+1+LevelCapacity]) {
+			switch bytesToStringUnsafe(ev.Buffer[TimestampCapacity+1 : TimestampCapacity+1+LevelCapacity]) {
 			case "DBG", "INF", "WRN", "ERR":
 				return true
 			default:
 				return false
 			}
 		}(), "Timestamp level word is either DBG, INF, WRN, or ERR")
-		invariant.Always(event.Buffer[TimestampCapacity+1+LevelCapacity] == ComponentDelimiter, "ComponentDelimiter found after level word")
+		invariant.Always(ev.Buffer[TimestampCapacity+1+LevelCapacity] == ComponentDelimiter, "ComponentDelimiter found after level word")
 
 		{
 			description := "Log message does not contain raw newlines or null bytes"
 			invariant.XAlways(func() bool {
-				for i := range event.Buffer[TimestampCapacity+1+LevelCapacity+1 : HeaderCapacity] {
+				for i := range ev.Buffer[TimestampCapacity+1+LevelCapacity+1 : HeaderCapacity] {
 					i += TimestampCapacity + 1 + LevelCapacity + 1
-					ch := event.Buffer[i]
+					ch := ev.Buffer[i]
 					if ch == '\n' {
 						return false
 					} else if ch == 0 {
@@ -731,9 +795,9 @@ func (event *_Event) Msg(msg string) {
 		{
 			invariant.XAlways(func() bool {
 				escaped := false
-				for i := range event.Buffer[HeaderCapacity+1:] {
+				for i := range ev.Buffer[HeaderCapacity+1:] {
 					i += HeaderCapacity + 1
-					ch := event.Buffer[i]
+					ch := ev.Buffer[i]
 					if ch == '\n' {
 						return false
 					} else if ch == '\\' {
@@ -747,9 +811,9 @@ func (event *_Event) Msg(msg string) {
 		}
 	}
 
-	event.Buffer = append(event.Buffer, '\n')
-	invariant.Always(event.Writer != nil, "A logger with a nil writer never initializes an event")
-	n, err := event.Writer.Write(event.Buffer)
+	ev.Buffer = append(ev.Buffer, '\n')
+	invariant.Always(ev.Writer != nil, "A logger with a nil writer never initializes an event")
+	n, err := ev.Writer.Write(ev.Buffer)
 	if err != nil {
 		os.Stderr.Write(stringToBytesUnsafe("WRITE_ERROR|could not write log event\n"))
 	}
@@ -757,45 +821,45 @@ func (event *_Event) Msg(msg string) {
 	invariant.Sometimes(n > DefaultEventBufferCapacity, "Log exceeded default buffer size")
 }
 
-func (logger *Logger) newEvent(level string) *_Event {
-	invariant.Always(logger != nil, "Callers of logger.newEvent don't propagate nil loggers")
+func (lgr *Logger) newEvent(level string) *Event {
+	invariant.Always(lgr != nil, "Callers of Logger.newEvent don't propagate nil loggers")
 	invariant.Always(len(level) == LevelMaxWordLength, "Level string is equal to LevelMaxWordLength")
 	invariant.Sometimes(level == "DBG", "New event is level DBG")
 	invariant.Sometimes(level == "INF", "New event is level INF")
 	invariant.Sometimes(level == "WRN", "New event is level WRN")
 	invariant.Sometimes(level == "ERR", "New event is level ERR")
 
-	event := EventPool.Get().(*_Event)
-	invariant.Sometimes(len(event.Buffer) > 0, "sync.Pool reused _Event with leftover data")
-	event.Buffer = event.Buffer[:0]
-	event.Writer = logger.Writer
+	ev := EventPool.Get().(*Event)
+	invariant.Sometimes(len(ev.Buffer) > 0, "sync.Pool reused Event with leftover data")
+	ev.Buffer = ev.Buffer[:0]
+	ev.Writer = lgr.Writer
 
 	t := TickCallback().UTC()
 	// Append YYYY-MM-DD
-	invariant.Always(len(event.Buffer) == 0, "Buffer was cleared before being written to")
-	event.Buffer = appendTime(event.Buffer, t)
-	event.Buffer = append(event.Buffer, ComponentDelimiter)
-	invariant.Always(len(event.Buffer) == TimestampCapacity+1, "Wrote exactly N bytes for Timestamp+ComponentDelimiter")
+	invariant.Always(len(ev.Buffer) == 0, "Buffer was cleared before being written to")
+	ev.Buffer = appendTime(ev.Buffer, t)
+	ev.Buffer = append(ev.Buffer, ComponentDelimiter)
+	invariant.Always(len(ev.Buffer) == TimestampCapacity+1, "Wrote exactly N bytes for Timestamp+ComponentDelimiter")
 
-	event.Buffer = append(event.Buffer, stringToBytesUnsafe(level)...)
-	invariant.Always(len(event.Buffer) == TimestampCapacity+1+LevelCapacity, "Wrote exactly N bytes for Level")
-	event.Buffer = append(event.Buffer, ComponentDelimiter)
+	ev.Buffer = append(ev.Buffer, stringToBytesUnsafe(level)...)
+	invariant.Always(len(ev.Buffer) == TimestampCapacity+1+LevelCapacity, "Wrote exactly N bytes for Level")
+	ev.Buffer = append(ev.Buffer, ComponentDelimiter)
 
 	// Set the slice length past the Msg() portion, starting at the context.
-	elementSize := int(unsafe.Sizeof(event.Buffer[0]))
-	previous := (*reflect.SliceHeader)(unsafe.Pointer(&event.Buffer))
+	elementSize := int(unsafe.Sizeof(ev.Buffer[0]))
+	previous := (*reflect.SliceHeader)(unsafe.Pointer(&ev.Buffer))
 	current := reflect.SliceHeader{
 		Data: previous.Data,
 		Cap:  previous.Cap,
-		Len:  (len(event.Buffer) + MessageCapacity) * elementSize,
+		Len:  (len(ev.Buffer) + MessageCapacity) * elementSize,
 	}
-	event.Buffer = *(*[]byte)(unsafe.Pointer(&current))
-	invariant.Always(len(event.Buffer) == HeaderCapacity, "Skipped past the message sub buffer during initialization")
-	invariant.Always(len(event.Buffer)+1 < cap(event.Buffer), "Default buffer size is greater than HeaderCapacity+ComponentDelimiter")
-	event.Buffer = append(event.Buffer, ComponentDelimiter)
-	invariant.Always(event.Buffer[HeaderCapacity] == ComponentDelimiter, "Component separator after header was set during event initialization")
-	event.Buffer = append(event.Buffer, logger.Buffer...)
-	return event
+	ev.Buffer = *(*[]byte)(unsafe.Pointer(&current))
+	invariant.Always(len(ev.Buffer) == HeaderCapacity, "Skipped past the message sub buffer during initialization")
+	invariant.Always(len(ev.Buffer)+1 < cap(ev.Buffer), "Default buffer size is greater than HeaderCapacity+ComponentDelimiter")
+	ev.Buffer = append(ev.Buffer, ComponentDelimiter)
+	invariant.Always(ev.Buffer[HeaderCapacity] == ComponentDelimiter, "Component separator after header was set during event initialization")
+	ev.Buffer = append(ev.Buffer, lgr.Buffer...)
+	return ev
 }
 
 func appendTime(dst []byte, t time.Time) []byte {
@@ -819,16 +883,16 @@ func appendTime(dst []byte, t time.Time) []byte {
 	return append(dst, 'Z')
 }
 
-func (event *_Event) destroy() {
-	if event == nil {
-		invariant.Unreachable("event.Destroy caller does not propagate nil event")
+func (ev *Event) destroy() {
+	if ev == nil {
+		invariant.Unreachable("Event.Destroy caller does not propagate nil event")
 		return
 	}
-	if cap(event.Buffer) > DefaultEventBufferCapacity {
-		invariant.Sometimes(true, "_Event with oversized buffer isn't returned to the pool")
+	if cap(ev.Buffer) > DefaultEventBufferCapacity {
+		invariant.Sometimes(true, "Event with oversized buffer isn't returned to the pool")
 		noop()
 	} else {
-		EventPool.Put(event)
+		EventPool.Put(ev)
 	}
 }
 
@@ -837,29 +901,29 @@ func (event *_Event) destroy() {
 // the context buffer create a new copy of Logger.
 type Logger struct {
 	Writer io.Writer
-	// To be inherited by a _Event created by its methods.
+	// To be inherited by a Event created by its methods.
 	Buffer []byte
 	Level  int
 }
 
-// _Event is a transient object that should not be touched after writing to
+// Event is a transient object that should not be touched after writing to
 // Writer. Minimize scope as much as possible, usually in one statement. If you
 // find yourself passing this as a function parameter, embed that context in the
-// Logger instead. _Event methods modify the _Event itself through a pointer
+// Logger instead. Event methods modify the Event itself through a pointer
 // receiver.
-type _Event struct {
+type Event struct {
 	Writer io.Writer
 	Buffer []byte
-	// The log level is intentionally omitted from _Event. Logger.<Level>()
+	// The log level is intentionally omitted from Event. Logger.<Level>()
 	// methods return nil if the event should not be logged, allowing method
-	// chains like logger.Info().Str("key", "val").Msg("msg") to no-op
+	// chains like Logger.Info().Str("key", "val").Msg("msg") to no-op
 	// safely. This design eliminates the need to check the log level inside
-	// _Event itself.
+	// Event itself.
 }
 
 var EventPool = &sync.Pool{
 	New: func() any {
-		return &_Event{
+		return &Event{
 			Buffer: make([]byte, 0, DefaultEventBufferCapacity),
 		}
 	},

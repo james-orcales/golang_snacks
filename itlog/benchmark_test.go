@@ -2,6 +2,7 @@
 package itlog_test
 
 import (
+	"encoding/json"
 	"errors"
 	"io"
 	"testing"
@@ -16,37 +17,37 @@ var (
 )
 
 func BenchmarkLogEmpty(b *testing.B) {
-	logger := itlog.New(io.Discard, itlog.LevelInfo)
+	lgr := itlog.New(io.Discard, itlog.LevelInfo)
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			logger.Info().Msg("")
+			lgr.Info().Msg("")
 		}
 	})
 }
 
 func BenchmarkDisabled(b *testing.B) {
-	logger := itlog.New(io.Discard, itlog.LevelDisabled)
+	lgr := itlog.New(io.Discard, itlog.LevelDisabled)
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			logger.Info().Msg(fakeMessage)
+			lgr.Info().Msg(fakeMessage)
 		}
 	})
 }
 
 func BenchmarkInfo(b *testing.B) {
-	logger := itlog.New(io.Discard, itlog.LevelInfo)
+	lgr := itlog.New(io.Discard, itlog.LevelInfo)
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			logger.Info().Msg(fakeMessage)
+			lgr.Info().Msg(fakeMessage)
 		}
 	})
 }
 
 func BenchmarkContextFields(b *testing.B) {
-	logger := itlog.New(io.Discard, itlog.LevelInfo).
+	lgr := itlog.New(io.Discard, itlog.LevelInfo).
 		WithStr("string", "four!").
 		WithTime("time", time.Time{}).
 		WithInt("int", 123).
@@ -54,28 +55,28 @@ func BenchmarkContextFields(b *testing.B) {
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			logger.Info().Msg(fakeMessage)
+			lgr.Info().Msg(fakeMessage)
 		}
 	})
 }
 
 func BenchmarkContextAppend(b *testing.B) {
-	logger := itlog.New(io.Discard, itlog.LevelInfo).
+	lgr := itlog.New(io.Discard, itlog.LevelInfo).
 		WithStr("foo", "bar")
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			logger.WithStr("bar", "baz")
+			lgr.Clone().WithStr("bar", "baz")
 		}
 	})
 }
 
 func BenchmarkLogFields(b *testing.B) {
-	logger := itlog.New(io.Discard, itlog.LevelInfo)
+	lgr := itlog.New(io.Discard, itlog.LevelInfo)
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			logger.Info().
+			lgr.Info().
 				Str("string", "four!").
 				Time("time", time.Time{}).
 				Int("int", 123).
@@ -85,34 +86,47 @@ func BenchmarkLogFields(b *testing.B) {
 	})
 }
 
-// TODO: support arrays?
-// type obj struct {
-// 	Pub  string
-// 	Tag  string `json:"tag"`
-// 	priv int
-// }
-//
-// func (o obj) MarshalZerologObject(e *Event) {
-// 	e.Str("Pub", o.Pub).
-// 		Str("Tag", o.Tag).
-// 		Int("priv", o.priv)
-// }
-//
-// func BenchmarkLogArrayObject(b *testing.B) {
-// 	obj1 := obj{"a", "b", 2}
-// 	obj2 := obj{"c", "d", 3}
-// 	obj3 := obj{"e", "f", 4}
-// 	logger := itlog.New(io.Discard, itlog.LevelInfo)
-// 	b.ResetTimer()
-// 	b.ReportAllocs()
-// 	for i := 0; i < b.N; i++ {
-// 		arr := Arr()
-// 		arr.Object(&obj1)
-// 		arr.Object(&obj2)
-// 		arr.Object(&obj3)
-// 		logger.Info().Array("objects", arr).Msg("test")
-// 	}
-// }
+type obj struct {
+	Pub  string
+	Tag  string `json:"tag"`
+	priv int
+}
+
+func (o obj) MarshalZerologObject(e *itlog.Event) {
+	e.Str("Pub", o.Pub).
+		Str("Tag", o.Tag).
+		Int("priv", o.priv)
+}
+
+func BenchmarkLogArrayObject(b *testing.B) {
+	obj1 := obj{"a", "b", 2}
+	obj2 := obj{"c", "d", 3}
+	obj3 := obj{"e", "f", 4}
+
+	lgr := itlog.New(io.Discard, itlog.LevelInfo)
+	b.ResetTimer()
+	b.ReportAllocs()
+	// This library has no built-in equivalent for automatically encoding objects;
+	// it expects the user to provide a string representation when using an object
+	// in a string context. In this benchmark, the type has a JSON struct tag, so we
+	// marshal each object to JSON before passing it to Strs. This way, the benchmark
+	// includes both the cost of JSON serialization and the logging overhead.
+	for i := 0; i < b.N; i++ {
+		obj1JSON, err := json.Marshal(obj1)
+		if err != nil {
+			b.Fatal(err)
+		}
+		obj2JSON, err := json.Marshal(obj2)
+		if err != nil {
+			b.Fatal(err)
+		}
+		obj3JSON, err := json.Marshal(obj3)
+		if err != nil {
+			b.Fatal(err)
+		}
+		lgr.Info().Strs("objects", string(obj1JSON), string(obj2JSON), string(obj3JSON)).Msg("test")
+	}
+}
 
 // func BenchmarkLogFieldType(b *testing.B) {
 // 	bools := []bool{true, false, true, false, true, false, true, false, true, false}

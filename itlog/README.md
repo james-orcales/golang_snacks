@@ -1,27 +1,32 @@
 # itlog
 
-A zero-allocation structured logger for Go, inspired by Zerolog but 20× smaller and optimized for human-readable output.
+A zero-allocation logger for Go that keeps the Zerolog feel and speed in a tiny codebase, with
+human-readable logfmt-style output.
+
 Its accomplishments are:
 
-1. Smaller footprint (800 SLOC vs Zerolog's 16k SLOC)
-2. Similar core API as Zerolog
-3. Easily vendorable (MIT licensed)
-4. Zero heap allocations
-5. Performant for human-readable format (25 million logs per second)
+1. 94% smaller footprint (~650 SLOC vs Zerolog's ~11.5k SLOC) excluding `*_test.go` and assertions
+2. Performant for human-readable format (50 million logs per second) and zero heap allocations
+4. Similar core API to Zerolog
+5. Easily vendorable (MIT licensed)
 
 ```go
 package main
 
-import "golang-snacks/itlog"
+import (
+    "os"
+    "golang_snacks/itlog"
+)
 
 func main() {
-	logger := itlog.New(itlog.LevelInfo)
-	logger.WithStr("name", "James").WithStr("email", "iwillhackyou@proton.mail")
+	lgr := itlog.New(os.Stdout, itlog.LevelInfo)
+    // Notice that this wasn't assigned to a variable.
+	lgr.Clone().WithStr("name", "James").WithStr("email", "iwillhackyou@proton.mail")
 	{
-		logger := logger.WithInt("FAANG_companies_hacked", 369)
-		logger.Info().Msg("This is a deep copy of the parent logger.")
+		lgr := lgr.Clone().WithInt("FAANG_companies_hacked", 369)
+		lgr.Info().Msg("This is a deep copy of the parent logger.")
 	}
-	logger.Info().Msg("This logger's buffer was not mutated")
+	lgr.Info().Msg("This logger's buffer was not mutated")
 }
 
 // $ go run .
@@ -35,31 +40,43 @@ These are the EXACT same benchmarks used by Zerolog. Note some benchmarks were
 excluded since they're unsupported yet.
 
 ```
-$ go test ./itlog   -bench=. -count=20 -benchtime=0.01s -benchmem -tags=disable_assertions > itlog_bench
-$ go test ./zerolog -bench=. -count=20 -benchtime=0.01s -benchmem > zerolog_bench
+$ go test ./itlog   -bench=. -count=20 -benchtime=0.01s -benchmem -tags=disable_assertions > benchitlog
+$ go test ./zerolog -bench=. -count=20 -benchtime=0.01s -benchmem > benchzerolog
 $ benchstat itlog_bench zerolog_bench
 goos: darwin
 goarch: arm64
 pkg: golang_snacks/itlog
 cpu: Apple M4
-                          │ itlog_bench        |      zerolog_bench             │
-                          │ nanosec/op         │ nanosec/op     vs base         │
-LogEmpty-10                 23.035n ± 22%        6.853n ±  6%  -70.25% (p=0.000 n=20)
-Disabled-10                 0.2980n ±  2%       0.3010n ±  1%        ~ (p=0.180 n=20)
-Info-10                      23.64n ± 16%        12.93n ±  3%  -45.34% (p=0.000 n=20)
-ContextFields-10             18.36n ±  3%        12.77n ±  5%  -30.40% (p=0.000 n=20)
-ContextAppend-10            40.625n ±  2%        3.271n ±  1%  -91.95% (p=0.000 n=20)
-LogFields-10                 42.07n ±  7%        24.71n ±  7%  -41.27% (p=0.000 n=20)
+                                       │ benchzerolog  │                benchitlog                 │
+                                       │    sec/op     │    sec/op      vs base                    │
+LogEmpty-10                               6.679n ±  3%   18.505n ± 27%   +177.04% (p=0.000 n=20)
+Disabled-10                              0.3120n ±  2%   0.2959n ±  1%     -5.18% (p=0.000 n=20)
+Info-10                                   13.73n ±  7%    24.04n ± 17%    +75.03% (p=0.000 n=20)
+ContextFields-10                          14.76n ±  7%    21.62n ± 25%    +46.56% (p=0.000 n=20)
+ContextAppend-10                          3.291n ±  1%   41.260n ±  2%  +1153.91% (p=0.000 n=20)
+LogFields-10                              25.52n ±  8%    38.82n ±  5%    +52.13% (p=0.000 n=20)
+LogArrayObject-10                         153.9n ±  3%    424.6n ±  1%   +175.89% (p=0.000 n=20)
 
+                                       │  benchzerolog  │            benchitlog            │
+                                       │      B/op      │    B/op     vs base              │
+LogEmpty-10                                0.000 ± 0%     0.000 ± 0%  ~ (p=1.000 n=20) ¹
+Disabled-10                                0.000 ± 0%     0.000 ± 0%  ~ (p=1.000 n=20) ¹
+Info-10                                    0.000 ± 0%     0.000 ± 0%  ~ (p=1.000 n=20) ¹
+ContextFields-10                           0.000 ± 0%     0.000 ± 0%  ~ (p=1.000 n=20) ¹
+ContextAppend-10                             0.0 ± 0%     256.0 ± 0%  ? (p=0.000 n=20)
+LogFields-10                               0.000 ± 0%     0.000 ± 0%  ~ (p=1.000 n=20) ¹
+LogArrayObject-10                           0.00 ± 0%     72.00 ± 0%  ? (p=0.000 n=20)
 
-                          │ itlog_bench_append │              zerolog_bench              │
-                          │     allocs/op      │ allocs/op   vs base                     │
-LogEmpty-10                       0.000 ± 0%     0.000 ± 0%         ~ (p=1.000 n=20) ¹
-Disabled-10                       0.000 ± 0%     0.000 ± 0%         ~ (p=1.000 n=20) ¹
-Info-10                           0.000 ± 0%     0.000 ± 0%         ~ (p=1.000 n=20) ¹
-ContextFields-10                  0.000 ± 0%     0.000 ± 0%         ~ (p=1.000 n=20) ¹
-ContextAppend-10                  2.000 ± 0%     0.000 ± 0%  -100.00% (p=0.000 n=20)
-LogFields-10                      0.000 ± 0%     0.000 ± 0%         ~ (p=1.000 n=20) ¹
+                                       │ benchzerolog │            benchitlog            │
+                                       │  allocs/op   │ allocs/op   vs base              │
+LogEmpty-10                              0.000 ± 0%     0.000 ± 0%  ~ (p=1.000 n=20) ¹
+Disabled-10                              0.000 ± 0%     0.000 ± 0%  ~ (p=1.000 n=20) ¹
+Info-10                                  0.000 ± 0%     0.000 ± 0%  ~ (p=1.000 n=20) ¹
+ContextFields-10                         0.000 ± 0%     0.000 ± 0%  ~ (p=1.000 n=20) ¹
+ContextAppend-10                         0.000 ± 0%     2.000 ± 0%  ? (p=0.000 n=20)
+LogFields-10                             0.000 ± 0%     0.000 ± 0%  ~ (p=1.000 n=20) ¹
+LogArrayObject-10                        0.000 ± 0%     3.000 ± 0%  ? (p=0.000 n=20)
+
 ```
 
 ## Design
@@ -83,6 +100,9 @@ time|level|message|context\n
 
 - Context keys only permit the following characters `[a-zA-Z._]`
 - Context string values are surrounded by double quotes `my_foo="your baz"`
+
+- Float context values are either `+Inf`, `-Inf`, `NaN`, or an integer that ALWAYS at least one
+  decimal point.
 
 ### Encoding
 
