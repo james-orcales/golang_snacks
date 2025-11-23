@@ -15,7 +15,7 @@ package main
 
 import (
     "os"
-    "golang_snacks/itlog"
+    "github.com/james-orcales/golang_snacks/itlog"
 )
 
 func main() {

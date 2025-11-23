@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"golang_snacks/itlog"
+	"github.com/james-orcales/golang_snacks/itlog"
 )
 
 var (

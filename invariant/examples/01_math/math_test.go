@@ -4,8 +4,8 @@ import (
 	"os"
 	"testing"
 
-	"golang_snacks/invariant"
-	math "golang_snacks/invariant/examples/02_math"
+	"github.com/james-orcales/golang_snacks/invariant"
+	math "github.com/james-orcales/golang_snacks/invariant/examples/02_math"
 )
 
 func TestMain(m *testing.M) {

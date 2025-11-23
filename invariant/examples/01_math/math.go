@@ -1,6 +1,6 @@
 package math
 
-import "golang_snacks/invariant"
+import "github.com/james-orcales/golang_snacks/invariant"
 
 func Add(x, y int) int {
 	sum := x + y

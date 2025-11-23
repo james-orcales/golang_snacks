@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"golang_snacks/cli"
-	"golang_snacks/invariant"
-	"golang_snacks/snap"
+	"github.com/james-orcales/golang_snacks/cli"
+	"github.com/james-orcales/golang_snacks/invariant"
+	"github.com/james-orcales/golang_snacks/snap"
 )
 
 var (

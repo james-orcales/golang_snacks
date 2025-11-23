@@ -9,7 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"golang_snacks/invariant"
+	"github.com/james-orcales/golang_snacks/invariant"
 )
 
 func main() {
