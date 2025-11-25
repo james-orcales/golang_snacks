@@ -23,7 +23,7 @@ func New(data string) Snapshot {
 	}
 }
 
-// Used for GO_SNAPSHOT_UPDATE_ALL
+// Used for SNAPSHOT_UPDATE_ALL
 var lines_added = 0
 
 // Diff returns true if actual == snapshot.Expect
