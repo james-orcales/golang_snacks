@@ -178,6 +178,9 @@ func RegisterPackagesForAnalysis(dirs ...string) {
 			if err != nil {
 				return err
 			}
+			if d.IsDir() && path != dir {
+				return filepath.SkipDir
+			}
 			if len(path) > len("_test.go") && strings.HasSuffix(path, "_test.go") {
 				return nil
 			}
