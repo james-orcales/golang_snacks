@@ -10,7 +10,7 @@ import (
 	"text/tabwriter"
 	"unsafe"
 
-	"golang_snacks/invariant"
+	"github.com/james-orcales/golang_snacks/invariant"
 )
 
 var (
@@ -50,7 +50,7 @@ func New(label, description string, commands ...Command) Program {
 		Commands:    commands,
 	}
 
-	for _, command := range program.Commands {
+	for i, command := range program.Commands {
 		panic_when(command.Label == "", "Program.Commands[%d].Label is unset", i)
 		for i, arg := range command.Arguments {
 			panic_when(arg.Label == "", "Argument #%d for command %q has no label", i, command.Label)
