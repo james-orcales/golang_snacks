@@ -46,7 +46,7 @@ func FpipeWithErr(out, err io.Writer, arguments ...string) bool {
 //
 // The first non-ENV token becomes the executable. Remaining tokens become args.
 // Returns true on zero exit status.
-func SpawnRaw(working_directory string, out, err io.Writer, arguments ...string) bool {
+func SpawnRaw(workingDirectory string, out, err io.Writer, arguments ...string) bool {
 	if len(arguments) == 0 {
 		panic("scripting.spawn requires at least one argument")
 	}
@@ -87,23 +87,25 @@ func SpawnRaw(working_directory string, out, err io.Writer, arguments ...string)
 	cmd.Stderr = err
 	cmd.Stdin = os.Stdin
 
-	if working_directory != "" {
-		os.MkdirAll(working_directory, 0o755)
-		cmd.Dir = working_directory
+	if workingDirectory != "" {
+		os.MkdirAll(workingDirectory, 0o755)
+		cmd.Dir = workingDirectory
 	}
-	err_code := cmd.Run()
-	return err_code == nil
+	errCode := cmd.Run()
+	return errCode == nil
 }
 
-// PushD changes into dir and returns a function that restores the
-// previous working directory. Call the returned function to revert.
+// PushDir changes the current working directory to the specified dir and returns a function that
+// restores the previous working directory. Call the returned function to revert to the original
+// directory.
 //
 // Usage:
 //
-//	pop_dir := sh.PushD("tmp")
-//	defer pop_dir()
-func PushDir(dir string) (pop_dir func()) {
-	wd, err := os.Getwd()
+//	popDir := sh.PushDir("tmp")
+//	doSomething()
+//	popDir()
+func PushDir(dir string) (popDir func()) {
+	workingDirectory, err := os.Getwd()
 	if err != nil {
 		panic(err)
 	}
@@ -111,7 +113,7 @@ func PushDir(dir string) (pop_dir func()) {
 		panic(err)
 	}
 	return func() {
-		if err := os.Chdir(wd); err != nil {
+		if err := os.Chdir(workingDirectory); err != nil {
 			panic(err)
 		}
 	}
