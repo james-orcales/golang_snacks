@@ -3,6 +3,7 @@
 package invariant
 
 import (
+	"iter"
 	"testing"
 )
 
@@ -24,6 +25,16 @@ func RegisterPackagesForAnalysis(dirs ...string) {
 }
 
 func AnalyzeAssertionFrequency() {
+}
+
+func Until(_ int) iter.Seq[int] {
+	return func(yield func(int) bool) {
+		for {
+			if !yield(iteration) {
+				return
+			}
+		}
+	}
 }
 
 func Unreachable(msg string) {

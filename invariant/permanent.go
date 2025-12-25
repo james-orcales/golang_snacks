@@ -3,6 +3,7 @@ package invariant
 import (
 	"fmt"
 	"io"
+	"iter"
 	"math/rand/v2"
 	"os"
 	"path"
@@ -53,6 +54,26 @@ func Ensure(cond bool, msg string) {
 		registerAssertion("Ensure", msg)
 	} else {
 		AssertionFailureCallback(fmt.Sprintf("%s: %s\n", AssertionFailureMsgPrefix, msg))
+	}
+}
+
+// GameLoop provides an explicit infinite loop sequence, similar to `for {}`. This makes infinite
+// loops explicit, which is useful if `for {}` is banned in CI/CD or code reviews.
+//
+// Usage:
+//
+//	for range invariant.GameLoop() {
+//		rl.Render()
+//	}
+//
+// Each iteration yields an increasing integer starting from 0.
+func GameLoop() iter.Seq[int] {
+	return func(yield func(int) bool) {
+		for iteration := 0; true; iteration++ {
+			if !yield(iteration) {
+				return
+			}
+		}
 	}
 }
 

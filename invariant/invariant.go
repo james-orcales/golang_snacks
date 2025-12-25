@@ -56,6 +56,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"iter"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -502,6 +503,43 @@ func AlwaysErrIsNot(actual error, targets []error, msg string) {
 	registerAssertion("AlwaysErrIsNot", msg)
 }
 
+// Until returns a bounded sequence useful for safely constraining infinite loops.
+// If the break condition never evaluates, the loop panics on the final iteration.
+// Under "disable_assertions", the loop still runs but runaway loops are undetected.
+// If you need an explicit game loop, refer to invariant.GameLoop.
+//
+// Usage:
+//
+//	// Instead of this:
+//	for {
+//		if cond() {
+//			break
+//		}
+//		doWork()
+//	}
+//	// Do this:
+//	for range invariant.Until(10_000) {
+//		if cond() {
+//			break
+//		}
+//		doWork()
+//	}
+//
+//go:noinline
+func Until(limit int) iter.Seq[int] {
+	Always(limit > 0, "Loop bound is a positive integer")
+	return func(yield func(int) bool) {
+		for iteration := range limit {
+			if iteration == limit-1 {
+				AssertionFailureCallback("Runaway loop!")
+				return
+			}
+			if !yield(iteration) {
+				return
+			}
+		}
+	}
+}
 
 //go:noinline
 func Unimplemented(msg string) {
