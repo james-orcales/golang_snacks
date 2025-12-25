@@ -95,6 +95,11 @@ func SpawnRaw(workingDirectory string, out, err io.Writer, arguments ...string) 
 	return errCode == nil
 }
 
+func WorkingDirectory() string {
+	wd, _ := os.Getwd()
+	return wd
+}
+
 // PushDir changes the current working directory to the specified dir and returns a function that
 // restores the previous working directory. Call the returned function to revert to the original
 // directory.
@@ -105,10 +110,7 @@ func SpawnRaw(workingDirectory string, out, err io.Writer, arguments ...string) 
 //	doSomething()
 //	popDir()
 func PushDir(dir string) (popDir func()) {
-	workingDirectory, err := os.Getwd()
-	if err != nil {
-		panic(err)
-	}
+	workingDirectory := WorkingDirectory()
 	if err := os.Chdir(dir); err != nil {
 		panic(err)
 	}
