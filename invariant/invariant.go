@@ -245,7 +245,8 @@ func RegisterPackagesForAnalysis(dirs ...string) {
 
 // AnalyzeAssertionFrequency scans the given directories for Sometimes, Always*,
 // XAlways* calls that have never evaluated to true and returns their source
-// locations and respective messages.
+// locations and respective messages. To see the stats, enable verbosity with
+// `go test ./foo -v`
 //
 // Usage:
 //
