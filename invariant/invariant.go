@@ -132,9 +132,6 @@ func registerAssertion(kind, msg string) {
 	if IsRunningUnderGoBenchmark || IsRunningUnderGoFuzz {
 		return
 	}
-	if msg == "" {
-		msg = emptyMessageIndicator
-	}
 	callers := [1]uintptr{}
 	count := runtime.Callers(3, callers[:])
 	frame, _ := runtime.CallersFrames(callers[:count]).Next()
@@ -236,7 +233,7 @@ func RegisterPackagesForAnalysis(dirs ...string) {
 				if ident.Name != "invariant" {
 					return true
 				}
-				msg := emptyMessageIndicator
+				msg := ""
 				switch sel.Sel.Name {
 				case "Sometimes", "XSometimes", "Ensure", "Always", "AlwaysNil", "AlwaysErrIs", "AlwaysErrIsNot",
 					"XAlways", "XAlwaysNil", "XAlwaysErrIs", "XAlwaysErrIsNot":
@@ -517,18 +514,12 @@ func Until(limit int) iter.Seq[int] {
 
 //go:noinline
 func Unimplemented(msg string) {
-	if msg == "" {
-		msg = emptyMessageIndicator
-	}
-	AssertionFailureCallback(fmt.Sprintf("%s: %s\n", AssertionFailureMsgPrefix, msg))
+	assertionFailureCallback(fmt.Sprintf("%s: %s\n", AssertionFailureMsgPrefix, msg))
 }
 
 //go:noinline
 func Unreachable(msg string) {
-	if msg == "" {
-		msg = emptyMessageIndicator
-	}
-	AssertionFailureCallback(fmt.Sprintf("%s: %s\n", AssertionFailureMsgPrefix, msg))
+	assertionFailureCallback(fmt.Sprintf("%s: %s\n", AssertionFailureMsgPrefix, msg))
 }
 
 /*

@@ -22,7 +22,6 @@ const (
 	//		}
 	//	}()
 	AssertionFailureMsgPrefix = "🚨 Assertion Failure 🚨"
-	emptyMessageIndicator     = "<empty>"
 	StackTraceDepth           = 15
 )
 
