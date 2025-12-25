@@ -231,10 +231,13 @@ func RegisterPackagesForAnalysis(dirs ...string) {
 					"XAlways", "XAlwaysNil", "XAlwaysErrIs", "XAlwaysErrIsNot":
 					pos := fset.Position(call.Lparen)
 					key := path + ":" + strconv.Itoa(pos.Line)
-					Always(len(call.Args) >= 2, "All of the matched assertions have at least two parameters")
-					if literal, ok := call.Args[1].(*ast.BasicLit); ok && literal.Kind == token.STRING {
-						msg = literal.Value[1 : len(literal.Value)-1] // remove quotes
-					}
+					Always(len(call.Args) >= 2, "All assertions have at least two parameters")
+					literal, ok := call.Args[len(call.Args)-1].(*ast.BasicLit)
+					// TODO: include location
+					Always(ok, "The last parameter is the assertion message")
+					Always(literal.Kind == token.STRING, "The assertion message is a string literal")
+					msg = literal.Value[1 : len(literal.Value)-1] // remove quotes
+
 					assertionTracker[key] = &metadata{
 						Kind:    sel.Sel.Name,
 						Message: msg,
@@ -457,7 +460,7 @@ func AlwaysNil(x interface{}, msg string) {
 // nil.
 //
 //go:noinline
-func AlwaysErrIs(actual error, msg string, targets ...error) {
+func AlwaysErrIs(actual error, targets []error, msg string) {
 	Always(len(targets) > 0, "invariant.AlwaysErrIs requires at least one target")
 	for _, t := range targets {
 		Always(t != nil, "All invariant.AlwaysErrIs targets must not be nil")
@@ -474,7 +477,7 @@ func AlwaysErrIs(actual error, msg string, targets ...error) {
 // nil.
 //
 //go:noinline
-func AlwaysErrIsNot(actual error, msg string, targets ...error) {
+func AlwaysErrIsNot(actual error, targets []error, msg string) {
 	Always(len(targets) > 0, "invariant.AlwaysErrIsNot() must have at least one target")
 	for _, t := range targets {
 		Always(t != nil, "invariant.AlwaysErrIsNot() targets must not be nil")
@@ -534,7 +537,7 @@ func XAlwaysNil(fn func() interface{}, msg string) {
 // XAlwaysErrIs evaluates fn and calls AssertionFailureCallback if the returned error is not in targets.
 //
 //go:noinline
-func XAlwaysErrIs(fn func() error, msg string, targets ...error) {
+func XAlwaysErrIs(fn func() error, targets []error, msg string) {
 	Always(len(targets) > 0, "invariant.XAlwaysErrIs requires at least one target")
 	for _, t := range targets {
 		Always(t != nil, "All invariant.XAlwaysErrIs targets must not be nil")
@@ -552,7 +555,7 @@ func XAlwaysErrIs(fn func() error, msg string, targets ...error) {
 // XAlwaysErrIsNot evaluates fn and calls AssertionFailureCallback if the returned error matches any target.
 //
 //go:noinline
-func XAlwaysErrIsNot(fn func() error, msg string, targets ...error) {
+func XAlwaysErrIsNot(fn func() error, targets []error, msg string) {
 	Always(len(targets) > 0, "invariant.XAlwaysErrIsNot requires at least one target")
 	for _, t := range targets {
 		Always(t != nil, "All invariant.XAlwaysErrIsNot targets must not be nil")
