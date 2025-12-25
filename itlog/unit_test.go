@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"os"
 	"testing"
 	"time"
 
@@ -29,13 +28,7 @@ func TestMain(m *testing.M) {
 	invariant.AssertionFailureCallback = func(msg string) {
 		fmt.Fprintln(StderrBuffer, msg)
 	}
-
-	invariant.RegisterPackagesForAnalysis()
-	code := m.Run()
-	if code == 0 {
-		invariant.AnalyzeAssertionFrequency()
-	}
-	os.Exit(code)
+	invariant.RunTestMain(m)
 }
 
 func check(t *testing.T, snapshot snap.Snapshot) {

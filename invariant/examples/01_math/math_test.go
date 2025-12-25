@@ -1,7 +1,6 @@
 package math_test
 
 import (
-	"os"
 	"testing"
 
 	"github.com/james-orcales/golang_snacks/invariant"
@@ -9,10 +8,7 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	invariant.RegisterPackagesForAnalysis()
-	code := m.Run()
-	invariant.AnalyzeAssertionFrequency()
-	os.Exit(code)
+	invariant.RunTestMain(m)
 }
 
 func TestAdd(t *testing.T) {

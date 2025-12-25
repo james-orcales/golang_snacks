@@ -63,6 +63,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"testing"
 )
 
 const (
@@ -133,6 +134,13 @@ type metadata struct {
 	Frequency int
 	Message   string
 	Kind      string
+}
+
+func RunTestMain(m *testing.M, dirs ...string) {
+	RegisterPackagesForAnalysis(dirs...)
+	code := m.Run()
+	AnalyzeAssertionFrequency()
+	os.Exit(code)
 }
 
 // registerAssertion records in the package-global assertion tracker that an
@@ -281,20 +289,13 @@ func RegisterPackagesForAnalysis(dirs ...string) {
 
 // AnalyzeAssertionFrequency scans the given directories for Sometimes, Always*,
 // XAlways* calls that have never evaluated to true and returns their source
-// locations and respective messages. In your *_test.go, add the following
-// snippet:
+// locations and respective messages.
+//
+// Usage:
 //
 //	func TestMain(m *testing.M) {
-//		invariant.RegisterPackagesForAnalysis()
-//		code := m.Run()
-//		if code == 0 {
-//			invariant.AnalyzeAssertionFrequency()
-//		}
-//		os.Exit(code)
+//		invariant.RunTestMain(m)
 //	}
-//
-// Then run your tests with the `-v` flag so you can see the frequency analysis
-// printed at the end: `go test ./mypackage -v`
 //
 // It is critical that you import this package under the name "invariant" as it
 // is hardcoded in the analyzer to look for this identifier.

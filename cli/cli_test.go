@@ -12,9 +12,22 @@ import (
 	"github.com/james-orcales/golang_snacks/snap"
 )
 
-var (
-	database = &bytes.Buffer{}
-	// TODO: reset values after each test
+func TestMain(m *testing.M) {
+	database.Grow(1024 * 256)
+	cli.Stdout = &bytes.Buffer{}
+	cli.Stderr = &bytes.Buffer{}
+	defer cli.Stdout.(*bytes.Buffer).Reset()
+	defer cli.Stderr.(*bytes.Buffer).Reset()
+
+	invariant.RegisterPackagesForAnalysis()
+	initGlobal()
+	code := m.Run()
+	invariant.AnalyzeAssertionFrequency()
+	os.Exit(code)
+}
+
+// initializing program AFTER registering packages so that cli.New assertions are registered
+func initGlobal() {
 	program = cli.New(
 		"todoctl",
 		"is a todo list manager",
@@ -46,6 +59,11 @@ var (
 			},
 		},
 	)
+}
+
+var (
+	database = &bytes.Buffer{}
+	program  cli.Program
 	// Usually, you'd inline this in func main(). Here, we extracted it out into separate
 	// function since each test is a separate entrypoint.
 	command_handler = func(command cli.Command) {
@@ -128,21 +146,6 @@ var (
 		}
 	}
 )
-
-func TestMain(m *testing.M) {
-	database.Grow(1024 * 256)
-	cli.Stdout = &bytes.Buffer{}
-	cli.Stderr = &bytes.Buffer{}
-	defer cli.Stdout.(*bytes.Buffer).Reset()
-	defer cli.Stderr.(*bytes.Buffer).Reset()
-
-	invariant.RegisterPackagesForAnalysis()
-	code := m.Run()
-	defer os.Exit(code)
-	if code == 0 {
-		invariant.AnalyzeAssertionFrequency()
-	}
-}
 
 func check(t *testing.T, out, err *bytes.Buffer, snapshot snap.Snapshot) {
 	t.Helper()

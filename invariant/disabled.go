@@ -2,6 +2,10 @@
 
 package invariant
 
+import (
+	"testing"
+)
+
 var (
 	AssertionFailureCallback = func(msg string) {
 	}
@@ -12,6 +16,9 @@ var (
 	DefaultAssertionFailureCallbackPanic = func(msg string) {
 	}
 )
+
+func RunTestMain(m *testing.M, dirs ...string) {
+}
 
 func RegisterPackagesForAnalysis(dirs ...string) {
 }
