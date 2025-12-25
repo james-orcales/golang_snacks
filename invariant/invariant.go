@@ -399,10 +399,11 @@ func AnalyzeAssertionFrequency() {
 	}
 }
 
-// Always calls AssertionFailureCallback if cond is false. If you need
-// Always(item == nil), use AlwaysNil(item) instead.
+// Always calls AssertionFailureCallback if cond is false.
 //
-// Note 1: When deferring assertions, enclose them in a closure. Otherwise, cond
+// Note 1: If you need Always(item == nil), use AlwaysNil(item) instead.
+//
+// Note 2: When deferring assertions, enclose them in a closure. Otherwise, cond
 // is evaluated immediately.
 //
 //	// Correct: deferred assertion evaluates cond later
@@ -411,7 +412,7 @@ func AnalyzeAssertionFrequency() {
 //	// Incorrect: cond evaluated immediately
 //	defer invariant.Always(x > 0, "x must be positive")
 //
-// Note 2: The analyzer tracks assertions by source line, so multiple assertions
+// Note 3: The analyzer tracks assertions by source line, so multiple assertions
 // on the same line via loops are treated as a single assertion. However, its
 // frequency counter increments on every evaluation. To avoid inflating
 // frequency statistics, wrap the loop in a closure that returns a single bool,
