@@ -43,6 +43,15 @@ var IsRunningUnderGoBenchmark = func() bool {
 	return v
 }()
 
+//go:noinline
+func Ensure(cond bool, msg string) {
+	if cond {
+		registerAssertion("Ensure", msg)
+	} else {
+		AssertionFailureCallback(fmt.Sprintf("%s: %s\n", AssertionFailureMsgPrefix, msg))
+	}
+}
+
 // FprintStackTrace writes a formatted stack trace to the given io.Writer.
 //
 // It collects up to 15 caller program counters starting at `callerLocation`

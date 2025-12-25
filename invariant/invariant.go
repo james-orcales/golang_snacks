@@ -227,7 +227,7 @@ func RegisterPackagesForAnalysis(dirs ...string) {
 				}
 				msg := "<empty>"
 				switch sel.Sel.Name {
-				case "Sometimes", "XSometimes", "Always", "AlwaysNil", "AlwaysErrIs", "AlwaysErrIsNot",
+				case "Sometimes", "XSometimes", "Ensure", "Always", "AlwaysNil", "AlwaysErrIs", "AlwaysErrIsNot",
 					"XAlways", "XAlwaysNil", "XAlwaysErrIs", "XAlwaysErrIsNot":
 					pos := fset.Position(call.Lparen)
 					key := path + ":" + strconv.Itoa(pos.Line)
