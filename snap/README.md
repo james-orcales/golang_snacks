@@ -25,45 +25,45 @@ func check(t *testing.T, actual string, snapshot snap.Snapshot) {
 ```go
 lgr.Warn().Msg("hello")
 actual := LogOutputBuffer.String()
-check(t, actual, snap.New(``))
+check(t, actual, snap.Init(``))
 ```
 
-First run with update:
+First run with edit:
 
 ```go
-check(t, actual, snap.New(``).Update())
+check(t, actual, snap.Edit(``))
 ```
 
 The call site is rewritten:
 
 ```go
 // Output itself has a newline at the end
-check(t, actual, snap.New(`2000-01-31T23:59:59Z|WRN|hello|
+check(t, actual, snap.Init(`2000-01-31T23:59:59Z|WRN|hello|
 `))
 ```
 
 Now future runs compare `actual` vs `expected`.
 
-## Update modes
+## Edit modes
 
-Update just this snapshot:
+Edit just this snapshot:
 
 ```go
-snap.New(``).Update()
+snap.Edit(``)
 ```
 
-Update all:
+Edit all:
 
 ```sh
-SNAPSHOT_UPDATE_ALL=1 go test ./...
+SNAPSHOT_EDIT_ALL=1 go test ./...
 ```
 
 ## Notes
 
 - `actual` is whatever your code produced.
-- `expected` is the inline backtick string in `snap.New(...)`.
+- `expected` is the inline backtick string in `snap.Init(...)`.
 - One snapshot per line.
-- Backticks must already be inside `snap.New(``)`
+- Backticks must already be inside `snap.Init(``)`
 
 ## Example
 

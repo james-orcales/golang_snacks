@@ -153,14 +153,14 @@ func check(t *testing.T, out, err *bytes.Buffer, snapshot snap.Snapshot) {
 	defer err.Reset()
 	defer database.Reset()
 	expect := fmt.Sprintf("Stdout:\n%s\nStderr:\n%s\nDatabase:\n%s\n", out.String(), err.String(), database.String())
-	if !snapshot.Diff(expect) {
+	if !snapshot.IsEqual(expect) {
 		t.Fatal("Snapshot mismatch")
 	}
 }
 
 func TestHelpMessage(t *testing.T) {
 	program.PrintHelp()
-	check(t, cli.Stdout.(*bytes.Buffer), cli.Stderr.(*bytes.Buffer), snap.New(`Stdout:
+	check(t, cli.Stdout.(*bytes.Buffer), cli.Stderr.(*bytes.Buffer), snap.Init(`Stdout:
 todoctl is a todo list manager
 
 Usage:
@@ -208,7 +208,7 @@ func TestDemo(t *testing.T) {
 		}
 		command_handler(command)
 	}
-	check(t, cli.Stdout.(*bytes.Buffer), cli.Stderr.(*bytes.Buffer), snap.New(`Stdout:
+	check(t, cli.Stdout.(*bytes.Buffer), cli.Stderr.(*bytes.Buffer), snap.Init(`Stdout:
 Nov 21 Fri | low | commit to github
 Nov 21 Fri | low | something important
 Nov 21 Fri | low | foo bar baz
@@ -247,7 +247,7 @@ func TestUserError(t *testing.T) {
 		}
 		command_handler(command)
 	}
-	check(t, cli.Stdout.(*bytes.Buffer), cli.Stderr.(*bytes.Buffer), snap.New(`Stdout:
+	check(t, cli.Stdout.(*bytes.Buffer), cli.Stderr.(*bytes.Buffer), snap.Init(`Stdout:
 different_label is a todo list manager
 
 Usage:

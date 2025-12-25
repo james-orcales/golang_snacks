@@ -39,7 +39,7 @@ func check(t *testing.T, snapshot snap.Snapshot) {
 	stderr := StderrBuffer.String()
 
 	actual := fmt.Sprintf("Stdout:\n%s\nStderr:\n%s", stdout, stderr)
-	if !snapshot.Diff(actual) {
+	if !snapshot.IsEqual(actual) {
 		t.Fatal("Snapshot mismatch")
 	}
 }
@@ -73,7 +73,7 @@ func TestSanityCheck(t *testing.T) {
 		Err(errors.New("err\n\x00err")).
 		Msg(" test\n\x00test")
 
-	check(t, snap.New(`Stdout:
+	check(t, snap.Init(`Stdout:
 2000-01-31T23:59:59Z|DBG| test  test                                                                     |__EMPTY__="test\n\0test"|__EMPTY__=__EMPTY__|bool.bar_baz=true|error.bar_baz="test\n\0test"|bool.bar_baz=false|uint64.bar_baz=18446744073709551615|int8.bar_baz=-128|__EMPTY__=__EMPTY__|str.ev="test\n\0test"|uint64.ev=18446744073709551615|int.ev=-9223372036854775808|int8.ev=-128|int16.ev=-32768|int32.ev=-2147483648|int64.ev2=-9223372036854775808|uint.ev=18446744073709551615|uint8.ev=255|uint16.ev=65535|uint32.ev=4294967295|bool.ev=true|bool.ev=false|error="err\n\0err"|
 
 Stderr:
@@ -100,7 +100,7 @@ No destiny ふさわしく無い
 	for _, input := range inputs {
 		lgr.Warn().Msg(input)
 	}
-	check(t, snap.New(`Stdout:
+	check(t, snap.Init(`Stdout:
 2000-01-31T23:59:59Z|WRN|                                                                                |
 2000-01-31T23:59:59Z|WRN|                                                                                |
 2000-01-31T23:59:59Z|WRN|                                                                                |
@@ -121,7 +121,7 @@ func TestEscaping(t *testing.T) {
 	lgr.Info().Str("raw_chars", "\\\n\"\x00").Msg("")
 	lgr.Info().Str("escaped_chars", `\n\"\0\\`).Msg("")
 	lgr.Info().Str("mixed_chars", "\\\"|\n\\\n\\n\x00\\0\"|").Msg("")
-	check(t, snap.New(`Stdout:
+	check(t, snap.Init(`Stdout:
 2000-01-31T23:59:59Z|INF|                                                                                |raw_chars="\\\n\"\0"|
 2000-01-31T23:59:59Z|INF|                                                                                |escaped_chars="\\n\\\"\\0\\\\"|
 2000-01-31T23:59:59Z|INF|                                                                                |mixed_chars="\\\"|\n\\\n\\n\0\\0\"|"|
@@ -166,7 +166,7 @@ func TestFloats(t *testing.T) {
 	lgr.Info().Float32("float32.SmallestNonzero", math.SmallestNonzeroFloat32).Msg("")
 	lgr.Info().Float64("float64.SmallestNonzero", math.SmallestNonzeroFloat64).Msg("")
 
-	check(t, snap.New(`Stdout:
+	check(t, snap.Init(`Stdout:
 2000-01-31T23:59:59Z|INF|                                                                                |float32.whole=1e+00|
 2000-01-31T23:59:59Z|INF|                                                                                |float64.whole=1e+00|
 2000-01-31T23:59:59Z|INF|                                                                                |float32.arbitrary=2.31245e+01|
@@ -208,7 +208,7 @@ Stderr:
 func TestArray(t *testing.T) {
 	lgr := itlog.New(StdoutBuffer, itlog.LevelInfo)
 	lgr.Info().Strs("rick.astley", "never", "gonna", "give", "you", "up").Msg("")
-	check(t, snap.New(`Stdout:
+	check(t, snap.Init(`Stdout:
 2000-01-31T23:59:59Z|INF|                                                                                |rick.astley=[ "never" "gonna" "give" "you" "up" ]|
 
 Stderr:
@@ -261,7 +261,7 @@ func TestNilLogger(t *testing.T) {
 		Msg("")
 	lgr.Info().Begin("")
 	lgr.Info().Done("")
-	check(t, snap.New(`Stdout:
+	check(t, snap.Init(`Stdout:
 
 Stderr:
 `))
@@ -293,7 +293,7 @@ func TestLevelThresholds(t *testing.T) {
 		Msg("")
 	lgr.Info().Begin("")
 	lgr.Info().Done("")
-	check(t, snap.New(`Stdout:
+	check(t, snap.Init(`Stdout:
 
 Stderr:
 `))
@@ -347,7 +347,7 @@ func TestEmpty(t *testing.T) {
 		Err(nil).
 		Errs(nil, nil, nil, nil).
 		Msg("")
-	check(t, snap.New(`Stdout:
+	check(t, snap.Init(`Stdout:
 2000-01-31T23:59:59Z|ERR|                                                                                |__EMPTY__="__EMPTY__"|__EMPTY__=true|__EMPTY__=127|__EMPTY__=32767|__EMPTY__=2147483647|__EMPTY__=9223372036854775807|__EMPTY__=9223372036854775807|__EMPTY__=255|__EMPTY__=65535|__EMPTY__=4294967295|__EMPTY__=18446744073709551615|__EMPTY__=-1|__EMPTY__=NaN|__EMPTY__=+Inf|__EMPTY__=-Inf|__EMPTY__=3.4028235e+38|__EMPTY__=-3.4028235e+38|__EMPTY__=1e-45|__EMPTY__=NaN|__EMPTY__=+Inf|__EMPTY__=-Inf|__EMPTY__=1.7976931348623157e+308|__EMPTY__=-1.7976931348623157e+308|__EMPTY__=5e-324|__EMPTY__="__EMPTY__"|__EMPTY__=18446744073709551615|__EMPTY__=-9223372036854775808|__EMPTY__=-128|__EMPTY__=-32768|__EMPTY__=-2147483648|__EMPTY__=-9223372036854775808|__EMPTY__=18446744073709551615|__EMPTY__=255|__EMPTY__=65535|__EMPTY__=4294967295|__EMPTY__=true|
 
 Stderr:
@@ -370,7 +370,7 @@ func TestErrorConvenience(t *testing.T) {
 	lgr.Error(nil, errors.New("bar"), nil).Msg("")
 	lgr.Error(errors.New("foo"), errors.New("bar"), errors.New("baz")).Msg("")
 
-	check(t, snap.New(`Stdout:
+	check(t, snap.Init(`Stdout:
 2000-01-31T23:59:59Z|ERR|                                                                                |
 2000-01-31T23:59:59Z|ERR|                                                                                |
 2000-01-31T23:59:59Z|ERR|                                                                                |
@@ -386,7 +386,7 @@ func TestBeginDone(t *testing.T) {
 	lgr := itlog.New(StdoutBuffer, itlog.LevelInfo)
 	lgr.Info().Begin("validating cache")
 	lgr.Info().Done("validating cache")
-	check(t, snap.New(`Stdout:
+	check(t, snap.Init(`Stdout:
 2000-01-31T23:59:59Z|INF|begin validating cache                                                          |
 2000-01-31T23:59:59Z|INF|done  validating cache                                                          |
 

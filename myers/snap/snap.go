@@ -10,13 +10,11 @@ import (
 	"runtime"
 	"strings"
 	"sync"
-
-	"github.com/james-orcales/golang_snacks/myers"
 )
 
 const (
-	GLOBAL_EDIT_ENV        = "SNAPSHOT_EDIT_ALL"
-	GLOBAL_EDIT_ENV_ENABLE = "1"
+	GLOBAL_EDIT_ENV            = "SNAPSHOT_EDIT_ALL"
+	GLOBAL_EDIT_ENV_ENABLE_ALL = "1"
 )
 
 type Snapshot struct {
@@ -55,8 +53,8 @@ type FileEdit struct {
 	Line, Delta int
 }
 
-var filesEdited = make(map[string][]FileEdit)
-var filesEditedMu = sync.Mutex{}
+var FilesEdited = make(map[string][]FileEdit)
+var FilesEditedMu = sync.Mutex{}
 
 func (snapshot Snapshot) IsEqual(actual string) (isEqual bool) {
 	assert(strings.Count(snapshot.Expect, "`") == 0, "Snapshot expected value does not contain backticks")
@@ -66,11 +64,11 @@ func (snapshot Snapshot) IsEqual(actual string) (isEqual bool) {
 
 	compileTimeLine := snapshot.Line
 	isEqual = actual == snapshot.Expect
-	if snapshot.ShouldEdit || os.Getenv(GLOBAL_EDIT_ENV) == GLOBAL_EDIT_ENV_ENABLE {
-		filesEditedMu.Lock()
-		defer filesEditedMu.Unlock()
+	if snapshot.ShouldEdit || os.Getenv(GLOBAL_EDIT_ENV) == GLOBAL_EDIT_ENV_ENABLE_ALL {
+		FilesEditedMu.Lock()
+		defer FilesEditedMu.Unlock()
 
-		if edits, ok := filesEdited[snapshot.FilePath]; ok {
+		if edits, ok := FilesEdited[snapshot.FilePath]; ok {
 			offset := 0
 			for _, edit := range edits {
 				if edit.Line < compileTimeLine {
@@ -145,21 +143,26 @@ func (snapshot Snapshot) IsEqual(actual string) (isEqual bool) {
 
 		if !isEqual {
 			delta := strings.Count(actual, "\n") - strings.Count(snapshot.Expect, "\n")
-			if _, ok := filesEdited[snapshot.FilePath]; !ok {
-				filesEdited[snapshot.FilePath] = make([]FileEdit, 0)
+			if _, ok := FilesEdited[snapshot.FilePath]; !ok {
+				FilesEdited[snapshot.FilePath] = make([]FileEdit, 0)
 			}
-			filesEdited[snapshot.FilePath] = append(filesEdited[snapshot.FilePath], FileEdit{Line: compileTimeLine, Delta: delta})
+			FilesEdited[snapshot.FilePath] = append(FilesEdited[snapshot.FilePath], FileEdit{Line: compileTimeLine, Delta: delta})
 		}
 
 		fmt.Printf("UPDATED SNAPSHOT %s:%d\n", snapshot.FilePath, snapshot.Line)
 		return true
 	} else {
 		if !isEqual {
-			d := myers.New(snapshot.Expect, actual)
-			fmt.Fprintf(os.Stderr, `
-Snapshot mismatch %s:%d
+			fmt.Printf(`Snapshot differs
+Expected:
+---------
 %s
-`, snapshot.FilePath, snapshot.Line, d.LineDiff())
+---------
+Actual:
+---------
+%s
+---------
+`, snapshot.Expect, actual)
 		}
 		return isEqual
 	}
