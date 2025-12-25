@@ -777,7 +777,6 @@ func (ev *Event) Msg(msg string) {
 		invariant.Always(ev.Buffer[TimestampCapacity+1+LevelCapacity] == ComponentDelimiter, "ComponentDelimiter found after level word")
 
 		{
-			description := "Log message does not contain raw newlines or null bytes"
 			invariant.XAlways(func() bool {
 				for i := range ev.Buffer[TimestampCapacity+1+LevelCapacity+1 : HeaderCapacity] {
 					i += TimestampCapacity + 1 + LevelCapacity + 1
@@ -789,7 +788,7 @@ func (ev *Event) Msg(msg string) {
 					}
 				}
 				return true
-			}, description)
+			}, "Log message does not contain raw newlines or null bytes")
 		}
 
 		{
