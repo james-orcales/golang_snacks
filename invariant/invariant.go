@@ -112,7 +112,7 @@ func RunTestMain(m *testing.M, dirs ...string) {
 // It is concurrency-safe and can be called from multiple goroutines.
 //
 //go:noinline
-func registerAssertion(kind, msg string) {
+func registerAssertion() {
 	if IsRunningUnderGoBenchmark || IsRunningUnderGoFuzz {
 		return
 	}
@@ -388,7 +388,7 @@ func AnalyzeAssertionFrequency() {
 //go:noinline
 func Always(cond bool, msg string) {
 	if cond {
-		registerAssertion("Always", msg)
+		registerAssertion()
 	} else {
 		assertionFailureCallback(fmt.Sprintf("%s: %s\n", AssertionFailureMsgPrefix, msg))
 	}
@@ -408,7 +408,7 @@ func Sometimes(ok bool, msg string) {
 	if !IsRunningUnderGoTest || !ok {
 		return
 	}
-	registerAssertion("Sometimes", msg)
+	registerAssertion()
 }
 
 // AlwaysNil calls assertionFailureCallback if x is NOT nil and prints the
@@ -418,7 +418,7 @@ func Sometimes(ok bool, msg string) {
 //go:noinline
 func AlwaysNil(x interface{}, msg string) {
 	if x == nil {
-		registerAssertion("AlwaysNil", msg)
+		registerAssertion()
 	} else {
 		assertionFailureCallback(fmt.Sprintf("%s: expected nil. got %v. %s\n", AssertionFailureMsgPrefix, x, msg))
 	}
@@ -434,7 +434,7 @@ func AlwaysErrIs(actual error, targets []error, msg string) {
 	for _, t := range targets {
 		Always(t != nil, "All invariant.AlwaysErrIs targets must not be nil")
 		if errors.Is(actual, t) {
-			registerAssertion("AlwaysErrIs", msg)
+			registerAssertion()
 			return
 		}
 	}
@@ -455,7 +455,7 @@ func AlwaysErrIsNot(actual error, targets []error, msg string) {
 			return
 		}
 	}
-	registerAssertion("AlwaysErrIsNot", msg)
+	registerAssertion()
 }
 
 // Until returns a bounded sequence useful for safely constraining infinite loops.
@@ -526,7 +526,7 @@ be to ensure that fn is pure or idempotent.
 //go:noinline
 func XAlways(fn func() bool, msg string) {
 	if fn() {
-		registerAssertion("XAlways", msg)
+		registerAssertion()
 	} else {
 		assertionFailureCallback(fmt.Sprintf("%s: %s\n", AssertionFailureMsgPrefix, msg))
 	}
@@ -537,7 +537,7 @@ func XSometimes(fn func() bool, msg string) {
 	if !IsRunningUnderGoTest || !fn() {
 		return
 	}
-	registerAssertion("XSometimes", msg)
+	registerAssertion()
 }
 
 // XAlwaysNil evaluates fn and calls assertionFailureCallback if the result is not nil.
@@ -546,7 +546,7 @@ func XSometimes(fn func() bool, msg string) {
 func XAlwaysNil(fn func() interface{}, msg string) {
 	x := fn()
 	if x == nil {
-		registerAssertion("XAlwaysNil", msg)
+		registerAssertion()
 	} else {
 		assertionFailureCallback(fmt.Sprintf("%s: expected nil. got %v. %s\n", AssertionFailureMsgPrefix, x, msg))
 	}
@@ -563,7 +563,7 @@ func XAlwaysErrIs(fn func() error, targets []error, msg string) {
 	actual := fn()
 	for _, t := range targets {
 		if errors.Is(actual, t) {
-			registerAssertion("XAlwaysErrIs", msg)
+			registerAssertion()
 			return
 		}
 	}
@@ -585,7 +585,7 @@ func XAlwaysErrIsNot(fn func() error, targets []error, msg string) {
 			return
 		}
 	}
-	registerAssertion("XAlwaysErrIsNot", msg)
+	registerAssertion()
 }
 
 // TODO: func RandomInt

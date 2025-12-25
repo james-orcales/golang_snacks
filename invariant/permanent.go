@@ -81,7 +81,7 @@ var IsRunningUnderGoBenchmark = func() bool {
 //go:noinline
 func Ensure(cond bool, msg string) {
 	if cond {
-		registerAssertion("Ensure", msg)
+		registerAssertion()
 	} else {
 		assertionFailureCallback(msg)
 	}
