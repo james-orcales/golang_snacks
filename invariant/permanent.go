@@ -12,7 +12,18 @@ import (
 )
 
 const (
-	StackTraceDepth = 15
+	// Used to detect panics caused by assertion failures
+	//
+	//	defer func() {
+	//		if err := recover(); err != nil {
+	//			if strErr, ok := err.(string); ok && strings.HasPrefix(strErr, invariant.AssertionFailureMsgPrefix) {
+	//				// handle assertion failure
+	//			}
+	//		}
+	//	}()
+	AssertionFailureMsgPrefix = "🚨 Assertion Failure 🚨"
+	emptyMessageIndicator     = "<empty>"
+	StackTraceDepth           = 15
 )
 
 var IsRunningUnderGoTest = func() bool {

@@ -68,20 +68,6 @@ import (
 )
 
 const (
-	//
-	// Used to detect panics caused by assertion failures
-	//
-	//      defer func() {
-	//      	if err := recover(); err != nil {
-	//      		if strErr, ok := err.(string); ok && strings.HasPrefix(strErr, invariant.AssertionFailureMsgPrefix) {
-	//      			// handle assertion failure
-	//      		}
-	//      	}
-	//      }()
-	//
-	AssertionFailureMsgPrefix = "🚨 Assertion Failure 🚨"
-	emptyMessageIndicator     = "<empty>"
-
 	// This library minimizes heap allocations by preferring fixed-size backing arrays for
 	// slices. These values determine the size of those arrays and should accommodate typical
 	// codebases without frequent resizing.
@@ -102,18 +88,6 @@ const (
 // servers. See examples/backend for usage.
 var (
 	AssertionFailureCallback = DefaultAssertionFailureCallbackFatal
-	/*
-		Used to detect panics caused by assertion failures
-		defer func() {
-			if err := recover(); err != nil {
-				if strErr, ok := err.(string); ok && strings.HasPrefix(strErr, invariant.AssertionFailureMsgPrefix) {
-					// handle assertion failure
-				}
-			}
-		}()
-
-	*/
-
 	DefaultAssertionFailureCallbackFatal = func(msg string) {
 		FprintStackTrace(os.Stderr, 1)
 		fmt.Fprintln(os.Stderr, msg)
