@@ -147,6 +147,7 @@ func registerAssertion(kind, msg string) {
 // RegisterPackagesForAnalysis ensures that only assertions from the tested
 // directories are tracked for frequency analysis. Dirs is relative to the
 // directory of the caller.
+// NOTE: All assertions must have their last parameter be the message parameter
 func RegisterPackagesForAnalysis(dirs ...string) {
 	Always(IsRunningUnderGoTest, "RegisterPackagesForAnalysis is only used in testing environments")
 	Always(len(packagesToAnalyze) == 1 && packagesToAnalyze[0] == ".", "packagesToAnalyze was set to the current testing package by default")
@@ -515,11 +516,12 @@ func XAlways(fn func() bool, msg string) {
 	}
 }
 
+//go:noinline
 func XSometimes(fn func() bool, msg string) {
 	if !IsRunningUnderGoTest || !fn() {
 		return
 	}
-	registerAssertion("Sometimes", msg)
+	registerAssertion("XSometimes", msg)
 }
 
 // XAlwaysNil evaluates fn and calls AssertionFailureCallback if the result is not nil.
