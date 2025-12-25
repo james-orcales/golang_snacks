@@ -25,6 +25,26 @@ const (
 	StackTraceDepth           = 15
 )
 
+var (
+	// msg is already prefixed with AssertionFailurePrefix here. If the user msg is empty then
+	// it also contains emptyMessageIndicator.
+	AssertionFailureHook    = func(msg string) {}
+	AssertionFailureIsFatal = false
+)
+
+// WARN: Callers rely on this callback to implicitly terminate control flow on failure (via
+// panic or os.Exit).
+func assertionFailureCallback(msg string) {
+	AssertionFailureHook(msg)
+	if AssertionFailureIsFatal {
+		FprintStackTrace(os.Stderr, 1)
+		fmt.Fprintln(os.Stderr, msg)
+		os.Exit(1)
+	} else {
+		panic(msg)
+	}
+}
+
 var IsRunningUnderGoTest = func() bool {
 	v := false
 	for _, arg := range os.Args {
@@ -63,7 +83,7 @@ func Ensure(cond bool, msg string) {
 	if cond {
 		registerAssertion("Ensure", msg)
 	} else {
-		AssertionFailureCallback(fmt.Sprintf("%s: %s\n", AssertionFailureMsgPrefix, msg))
+		assertionFailureCallback(msg)
 	}
 }
 

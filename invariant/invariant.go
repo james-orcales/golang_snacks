@@ -81,23 +81,7 @@ const (
 	assertionIDLength       = maxFilePath + 1 + maxFileLines
 )
 
-// AssertionFailureCallback lets you override the default hard assertion
-// behavior (which crashes the program on failure) with custom logic. Assigning
-// a non-crashing callback allows users to handle assertion failures gracefully,
-// for example by logging or recovering in long-running applications like web
-// servers. See examples/backend for usage.
 var (
-	AssertionFailureCallback = DefaultAssertionFailureCallbackFatal
-	DefaultAssertionFailureCallbackFatal = func(msg string) {
-		FprintStackTrace(os.Stderr, 1)
-		fmt.Fprintln(os.Stderr, msg)
-		os.Exit(1)
-	}
-
-	DefaultAssertionFailureCallbackPanic = func(msg string) {
-		panic(msg)
-	}
-
 	// packagesToAnalyze defaults to the current testing package.
 	packagesToAnalyze = []string{"."}
 	// assertionTracker globally tracks true assertions inside packagesToAnalyze.
@@ -372,7 +356,7 @@ func AnalyzeAssertionFrequency() {
 	}
 }
 
-// Always calls AssertionFailureCallback if cond is false.
+// Always calls assertionFailureCallback if cond is false.
 //
 // Note 1: If you need Always(item == nil), use AlwaysNil(item) instead.
 //
@@ -406,7 +390,7 @@ func Always(cond bool, msg string) {
 	if cond {
 		registerAssertion("Always", msg)
 	} else {
-		AssertionFailureCallback(fmt.Sprintf("%s: %s\n", AssertionFailureMsgPrefix, msg))
+		assertionFailureCallback(fmt.Sprintf("%s: %s\n", AssertionFailureMsgPrefix, msg))
 	}
 }
 
@@ -427,7 +411,7 @@ func Sometimes(ok bool, msg string) {
 	registerAssertion("Sometimes", msg)
 }
 
-// AlwaysNil calls AssertionFailureCallback if x is NOT nil and prints the
+// AlwaysNil calls assertionFailureCallback if x is NOT nil and prints the
 // non-null object. Prefer this over Always(x == nil) so that the value of x can
 // be logged.
 //
@@ -436,11 +420,11 @@ func AlwaysNil(x interface{}, msg string) {
 	if x == nil {
 		registerAssertion("AlwaysNil", msg)
 	} else {
-		AssertionFailureCallback(fmt.Sprintf("%s: expected nil. got %v. %s\n", AssertionFailureMsgPrefix, x, msg))
+		assertionFailureCallback(fmt.Sprintf("%s: expected nil. got %v. %s\n", AssertionFailureMsgPrefix, x, msg))
 	}
 }
 
-// AlwaysErrIs calls AssertionFailureCallback if actual is NOT one of the
+// AlwaysErrIs calls assertionFailureCallback if actual is NOT one of the
 // specified targets. Must provide at least one target. All targets must not be
 // nil.
 //
@@ -454,10 +438,10 @@ func AlwaysErrIs(actual error, targets []error, msg string) {
 			return
 		}
 	}
-	AssertionFailureCallback(fmt.Sprintf("%s: error did not match any targets. got %q. %s\n", AssertionFailureMsgPrefix, actual, msg))
+	assertionFailureCallback(fmt.Sprintf("%s: error did not match any targets. got %q. %s\n", AssertionFailureMsgPrefix, actual, msg))
 }
 
-// AlwaysErrIsNot calls AssertionFailureCallback if actual is one of the
+// AlwaysErrIsNot calls assertionFailureCallback if actual is one of the
 // specified targets. Must provide at least one target. All targets must not be
 // nil.
 //
@@ -467,7 +451,7 @@ func AlwaysErrIsNot(actual error, targets []error, msg string) {
 	for _, t := range targets {
 		Always(t != nil, "invariant.AlwaysErrIsNot() targets must not be nil")
 		if errors.Is(actual, t) {
-			AssertionFailureCallback(fmt.Sprintf("%s: error unexpectedly matched a target. got %q. %s\n", AssertionFailureMsgPrefix, actual, msg))
+			assertionFailureCallback(fmt.Sprintf("%s: error unexpectedly matched a target. got %q. %s\n", AssertionFailureMsgPrefix, actual, msg))
 			return
 		}
 	}
@@ -502,7 +486,7 @@ func Until(limit int) iter.Seq[int] {
 	return func(yield func(int) bool) {
 		for iteration := range limit {
 			if iteration == limit-1 {
-				AssertionFailureCallback("Runaway loop!")
+				assertionFailureCallback("Runaway loop!")
 				return
 			}
 			if !yield(iteration) {
@@ -523,7 +507,7 @@ func Unreachable(msg string) {
 }
 
 /*
-XAlways evaluates fn and calls AssertionFailureCallback if it returns false. It
+XAlways evaluates fn and calls assertionFailureCallback if it returns false. It
 is designed for use cases where you want to perform expensive validations that
 can be disabled in production builds using the `disable_assertions`
 build tag.
@@ -544,7 +528,7 @@ func XAlways(fn func() bool, msg string) {
 	if fn() {
 		registerAssertion("XAlways", msg)
 	} else {
-		AssertionFailureCallback(fmt.Sprintf("%s: %s\n", AssertionFailureMsgPrefix, msg))
+		assertionFailureCallback(fmt.Sprintf("%s: %s\n", AssertionFailureMsgPrefix, msg))
 	}
 }
 
@@ -556,7 +540,7 @@ func XSometimes(fn func() bool, msg string) {
 	registerAssertion("XSometimes", msg)
 }
 
-// XAlwaysNil evaluates fn and calls AssertionFailureCallback if the result is not nil.
+// XAlwaysNil evaluates fn and calls assertionFailureCallback if the result is not nil.
 //
 //go:noinline
 func XAlwaysNil(fn func() interface{}, msg string) {
@@ -564,11 +548,11 @@ func XAlwaysNil(fn func() interface{}, msg string) {
 	if x == nil {
 		registerAssertion("XAlwaysNil", msg)
 	} else {
-		AssertionFailureCallback(fmt.Sprintf("%s: expected nil. got %v. %s\n", AssertionFailureMsgPrefix, x, msg))
+		assertionFailureCallback(fmt.Sprintf("%s: expected nil. got %v. %s\n", AssertionFailureMsgPrefix, x, msg))
 	}
 }
 
-// XAlwaysErrIs evaluates fn and calls AssertionFailureCallback if the returned error is not in targets.
+// XAlwaysErrIs evaluates fn and calls assertionFailureCallback if the returned error is not in targets.
 //
 //go:noinline
 func XAlwaysErrIs(fn func() error, targets []error, msg string) {
@@ -583,10 +567,10 @@ func XAlwaysErrIs(fn func() error, targets []error, msg string) {
 			return
 		}
 	}
-	AssertionFailureCallback(fmt.Sprintf("%s: error did not match any targets. got %q. %s\n", AssertionFailureMsgPrefix, actual, msg))
+	assertionFailureCallback(fmt.Sprintf("%s: error did not match any targets. got %q. %s\n", AssertionFailureMsgPrefix, actual, msg))
 }
 
-// XAlwaysErrIsNot evaluates fn and calls AssertionFailureCallback if the returned error matches any target.
+// XAlwaysErrIsNot evaluates fn and calls assertionFailureCallback if the returned error matches any target.
 //
 //go:noinline
 func XAlwaysErrIsNot(fn func() error, targets []error, msg string) {
@@ -597,7 +581,7 @@ func XAlwaysErrIsNot(fn func() error, targets []error, msg string) {
 	actual := fn()
 	for _, t := range targets {
 		if errors.Is(actual, t) {
-			AssertionFailureCallback(fmt.Sprintf("%s: error unexpectedly matched a target. got %q. %s\n", AssertionFailureMsgPrefix, actual, msg))
+			assertionFailureCallback(fmt.Sprintf("error unexpectedly matched a target. got %q. %s\n", actual, msg))
 			return
 		}
 	}

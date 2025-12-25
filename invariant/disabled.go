@@ -7,17 +7,6 @@ import (
 	"testing"
 )
 
-var (
-	AssertionFailureCallback = func(msg string) {
-	}
-
-	DefaultAssertionFailureCallbackFatal = func(msg string) {
-	}
-
-	DefaultAssertionFailureCallbackPanic = func(msg string) {
-	}
-)
-
 func RunTestMain(m *testing.M, dirs ...string) {
 }
 

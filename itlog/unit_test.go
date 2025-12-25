@@ -25,7 +25,7 @@ func TestMain(m *testing.M) {
 	StdoutBuffer.Grow(1024 * 512)
 	StderrBuffer.Grow(1024 * 512)
 
-	invariant.AssertionFailureCallback = func(msg string) {
+	invariant.AssertionFailureHook = func(msg string) {
 		fmt.Fprintln(StderrBuffer, msg)
 	}
 	invariant.RunTestMain(m)
