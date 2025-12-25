@@ -65,6 +65,34 @@ import (
 	"sync"
 )
 
+const (
+	//
+	// Used to detect panics caused by assertion failures
+	//
+	//      defer func() {
+	//      	if err := recover(); err != nil {
+	//      		if strErr, ok := err.(string); ok && strings.HasPrefix(strErr, invariant.AssertionFailureMsgPrefix) {
+	//      			// handle assertion failure
+	//      		}
+	//      	}
+	//      }()
+	//
+	AssertionFailureMsgPrefix = "🚨 Assertion Failure 🚨"
+	emptyMessageIndicator     = "<empty>"
+
+	// This library minimizes heap allocations by preferring fixed-size backing arrays for
+	// slices. These values determine the size of those arrays and should accommodate typical
+	// codebases without frequent resizing.
+	leastExercisedInvariantCount = 10
+	// maxAssertionsPerPackage is the maximum number of Sometimes, XSometimes, Always*, and
+	// XAlways* calls in a single package.
+	maxAssertionsPerPackage = 2048
+	maxGoFilesPerPackage    = 1024
+	maxFilePath             = 260
+	maxFileLines            = 5 // In digits (99,999 lines)
+	assertionIDLength       = maxFilePath + 1 + maxFileLines
+)
+
 // AssertionFailureCallback lets you override the default hard assertion
 // behavior (which crashes the program on failure) with custom logic. Assigning
 // a non-crashing callback allows users to handle assertion failures gracefully,
@@ -83,7 +111,6 @@ var (
 		}()
 
 	*/
-	AssertionFailureMsgPrefix = "🚨 Assertion Failure 🚨"
 
 	DefaultAssertionFailureCallbackFatal = func(msg string) {
 		FprintStackTrace(os.Stderr, 1)
@@ -123,7 +150,7 @@ func registerAssertion(kind, msg string) {
 		return
 	}
 	if msg == "" {
-		msg = "<empty>"
+		msg = emptyMessageIndicator
 	}
 	callers := [1]uintptr{}
 	count := runtime.Callers(3, callers[:])
@@ -226,7 +253,7 @@ func RegisterPackagesForAnalysis(dirs ...string) {
 				if ident.Name != "invariant" {
 					return true
 				}
-				msg := "<empty>"
+				msg := emptyMessageIndicator
 				switch sel.Sel.Name {
 				case "Sometimes", "XSometimes", "Ensure", "Always", "AlwaysNil", "AlwaysErrIs", "AlwaysErrIsNot",
 					"XAlways", "XAlwaysNil", "XAlwaysErrIs", "XAlwaysErrIsNot":
@@ -314,21 +341,20 @@ func AnalyzeAssertionFrequency() {
 			key   string
 			count int
 		}
-		const n = 20
-		fmt.Printf("Showing up to %d of the least-exercised invariants:\n", n)
+		fmt.Printf("Showing up to %d of the least-exercised invariants:\n", leastExercisedInvariantCount)
 
 		longestMessageLength := 0
 		longestKindWord := 0
 
-		h := make([]scored, 0, n)
+		h := make([]scored, 0, leastExercisedInvariantCount)
 		for key, assertion := range assertionTracker {
 			Always(key != "", "Assertion location must not be empty")
 			longestMessageLength = max(longestMessageLength, len(assertion.Message))
 			longestKindWord = max(longestKindWord, len(assertion.Kind))
 
-			if len(h) < n {
+			if len(h) < leastExercisedInvariantCount {
 				h = append(h, scored{key, assertion.Frequency})
-				if len(h) == n {
+				if len(h) == leastExercisedInvariantCount {
 					sort.Slice(h, func(i, j int) bool {
 						return h[i].count > h[j].count
 					})
@@ -340,11 +366,11 @@ func AnalyzeAssertionFrequency() {
 				i := 0
 				for {
 					l, r := 2*i+1, 2*i+2
-					if l >= n {
+					if l >= leastExercisedInvariantCount {
 						break
 					}
 					small := l
-					if r < n && h[r].count > h[l].count {
+					if r < leastExercisedInvariantCount && h[r].count > h[l].count {
 						small = r
 					}
 					if h[i].count >= h[small].count {
@@ -371,22 +397,6 @@ func AnalyzeAssertionFrequency() {
 			)
 		}
 	}
-}
-
-//go:noinline
-func Unimplemented(msg string) {
-	if msg == "" {
-		msg = "<empty>"
-	}
-	AssertionFailureCallback(fmt.Sprintf("%s: %s\n", AssertionFailureMsgPrefix, msg))
-}
-
-//go:noinline
-func Unreachable(msg string) {
-	if msg == "" {
-		msg = "<empty>"
-	}
-	AssertionFailureCallback(fmt.Sprintf("%s: %s\n", AssertionFailureMsgPrefix, msg))
 }
 
 // Always calls AssertionFailureCallback if cond is false. If you need
@@ -490,6 +500,23 @@ func AlwaysErrIsNot(actual error, targets []error, msg string) {
 	registerAssertion("AlwaysErrIsNot", msg)
 }
 
+
+//go:noinline
+func Unimplemented(msg string) {
+	if msg == "" {
+		msg = emptyMessageIndicator
+	}
+	AssertionFailureCallback(fmt.Sprintf("%s: %s\n", AssertionFailureMsgPrefix, msg))
+}
+
+//go:noinline
+func Unreachable(msg string) {
+	if msg == "" {
+		msg = emptyMessageIndicator
+	}
+	AssertionFailureCallback(fmt.Sprintf("%s: %s\n", AssertionFailureMsgPrefix, msg))
+}
+
 /*
 XAlways evaluates fn and calls AssertionFailureCallback if it returns false. It
 is designed for use cases where you want to perform expensive validations that
@@ -574,15 +601,3 @@ func XAlwaysErrIsNot(fn func() error, targets []error, msg string) {
 
 // TODO: func RandomInt
 
-// Be generous with these constants. This library minimizes heap allocations by
-// preferring fixed-size backing arrays for slices. These values determine the
-// size of those arrays and should accommodate typical codebases without
-// frequent resizing.
-const (
-	// maxAssertionsPerPackage is the maximum number of Sometimes, XSometimes, Always*, and XAlways* calls in a single package.
-	maxAssertionsPerPackage = 2048
-	maxGoFilesPerPackage    = 1024
-	maxFilePath             = 260
-	maxFileLines            = 5 // In digits (99,999 lines)
-	assertionIDLength       = maxFilePath + 1 + maxFileLines
-)

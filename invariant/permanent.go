@@ -10,6 +10,10 @@ import (
 	"strings"
 )
 
+const (
+	StackTraceDepth = 15
+)
+
 var IsRunningUnderGoTest = func() bool {
 	v := false
 	for _, arg := range os.Args {
@@ -54,7 +58,7 @@ func Ensure(cond bool, msg string) {
 
 // FprintStackTrace writes a formatted stack trace to the given io.Writer.
 //
-// It collects up to 15 caller program counters starting at `callerLocation`
+// It collects up to StackTraceDepth caller program counters starting at `callerLocation`
 // (relative to the call site).
 //
 // Frames corresponding to Go test harness files (_testmain.go) and common
@@ -79,14 +83,13 @@ func Ensure(cond bool, msg string) {
 //	FAIL    golang_snacks/invariant/examples/02_math        0.330s
 //	FAIL
 func FprintStackTrace(w io.Writer, callerLocation int) {
-	const depth = 15
-	var pcs [depth]uintptr
+	var pcs [StackTraceDepth]uintptr
 	skip := 2 + max(0, callerLocation)
 
 	n := runtime.Callers(skip, pcs[:])
 	fs := runtime.CallersFrames(pcs[:n])
 
-	var frames [depth]runtime.Frame
+	var frames [StackTraceDepth]runtime.Frame
 	i := 0
 	for {
 		frame, ok := fs.Next()
