@@ -156,10 +156,21 @@ func (snapshot Snapshot) IsEqual(actual string) (isEqual bool) {
 	} else {
 		if !isEqual {
 			d := myers.New(snapshot.Expect, actual)
-			fmt.Fprintf(os.Stderr, `
-Snapshot mismatch %s:%d
-%s
-`, snapshot.FilePath, snapshot.Line, d.LineDiff())
+			fmt.Fprintf(os.Stderr, `Snapshot mismatch %s:%d %s`, snapshot.FilePath, snapshot.Line)
+			for line := range strings.SplitSeq(d.LineDiff(), "\n") {
+				if len(line) == 0 {
+					fmt.Println(line)
+					continue
+				}
+				switch line[0] {
+				case '+':
+					fmt.Println("\033[32m" + line + "\033[0m")
+				case '-':
+					fmt.Println("\033[31m" + line + "\033[0m")
+				default:
+					fmt.Println(line)
+				}
+			}
 		}
 		return isEqual
 	}
