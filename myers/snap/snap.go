@@ -3,13 +3,13 @@ package snap
 import (
 	"bytes"
 	"fmt"
-	"io"
 	"os"
-	"path"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
+
+	"github.com/james-orcales/golang_snacks/xdebug"
 )
 
 const (
@@ -171,55 +171,8 @@ Actual:
 
 func assert(cond bool, msg string) {
 	if !cond {
-		fprintStackTrace(os.Stderr, 2)
+		xdebug.FprintStackTrace(os.Stderr, 2)
 		fmt.Fprintln(os.Stderr, msg)
 		os.Exit(1)
-	}
-}
-
-func fprintStackTrace(w io.Writer, callerLocation int) {
-	const depth = 15
-	var pcs [depth]uintptr
-	skip := 1 + max(0, callerLocation)
-
-	n := runtime.Callers(skip, pcs[:])
-	fs := runtime.CallersFrames(pcs[:n])
-
-	var frames [depth]runtime.Frame
-	i := 0
-	for {
-		frame, ok := fs.Next()
-		if !ok || i >= len(frames) {
-			break
-		}
-		frame.Function = path.Base(frame.Function)
-		frames[i] = frame
-		i++
-	}
-
-	maxFn := 0
-	for j := 0; j < i; j++ {
-		n := len(frames[j].Function)
-		if n > maxFn {
-			maxFn = n
-		}
-	}
-
-	for j := 0; j < i; j++ {
-		frame := frames[j]
-		if frame.File == "_testmain.go" {
-			continue
-		}
-		switch frame.Function {
-		case "runtime.main", "testing.tRunner":
-			continue
-		}
-		fmt.Fprintf(w,
-			"%-*s | %s:%d\n",
-			maxFn,
-			frame.Function,
-			frame.File,
-			frame.Line,
-		)
 	}
 }
