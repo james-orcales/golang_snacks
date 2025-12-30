@@ -28,6 +28,8 @@ const (
 	// pool but are instead left for the garbage collector.
 	ContextCapacity = 300
 
+	LogWriteErrorMessage = "golang_snacks/itlog: Could not write log"
+
 	LevelMaxWordLength = 3
 	LevelDebug         = -100
 	LevelInfo          = 0
@@ -814,7 +816,7 @@ func (ev *Event) Msg(msg string) {
 	invariant.Always(ev.Writer != nil, "A logger with a nil writer never initializes an event")
 	n, err := ev.Writer.Write(ev.Buffer)
 	if err != nil {
-		os.Stderr.Write(stringToBytesUnsafe("WRITE_ERROR|could not write log event\n"))
+		fmt.Fprintln(os.Stderr, LogWriteErrorMessage)
 	}
 
 	invariant.Sometimes(n > DefaultEventBufferCapacity, "Log exceeded default buffer size")
