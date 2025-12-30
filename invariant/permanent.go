@@ -29,6 +29,7 @@ var (
 	// it also contains emptyMessageIndicator.
 	AssertionFailureHook    = func(msg string) {}
 	AssertionFailureIsFatal = false
+	AssertionFailureIsFatal = true
 )
 
 // WARN: Callers rely on this callback to implicitly terminate control flow on failure (via
