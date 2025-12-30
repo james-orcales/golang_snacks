@@ -13,7 +13,7 @@ Inline snapshot testing for Go inspired by [TigerBeetle: Snapshot Testing For Th
 ```go
 func check(t *testing.T, actual string, snapshot snap.Snapshot) {
 	t.Helper()
-	if !snapshot.Diff(actual) {
+	if !snapshot.IsEqual(actual) {
 		t.Fatal("Snapshot mismatch")
 	}
 }
@@ -63,7 +63,7 @@ SNAPSHOT_EDIT_ALL=1 go test ./...
 - `actual` is whatever your code produced.
 - `expected` is the inline backtick string in `snap.Init(...)`.
 - One snapshot per line.
-- Backticks must already be inside `snap.Init(``)`
+- Backticks must already be inside `snap.Init(``)` before calling `snap.Edit`
 
 ## Example
 
