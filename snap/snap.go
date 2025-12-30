@@ -157,7 +157,7 @@ func (snapshot Snapshot) IsEqual(actual string) (isEqual bool) {
 	} else {
 		if !isEqual {
 			d := myers.New(snapshot.Expect, actual)
-			fmt.Fprintf(os.Stderr, `Snapshot mismatch %s:%d %s`, snapshot.FilePath, snapshot.Line)
+			fmt.Fprintf(os.Stderr, "Snapshot mismatch %s:%d\n", snapshot.FilePath, snapshot.Line)
 			for line := range strings.SplitSeq(d.LineDiff(), "\n") {
 				if len(line) == 0 {
 					fmt.Println(line)
