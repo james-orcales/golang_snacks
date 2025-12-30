@@ -24,6 +24,7 @@ type Snapshot struct {
 	ShouldEdit bool
 }
 
+// WARN: Brittle under go:generate
 func Init(data string) Snapshot {
 	callers := [1]uintptr{}
 	count := runtime.Callers(2, callers[:])
