@@ -4,10 +4,9 @@ package invariant
 
 import (
 	"iter"
-	"testing"
 )
 
-func RunTestMain(m *testing.M, dirs ...string) {
+func registerAssertion() {
 }
 
 func RegisterPackagesForAnalysis(dirs ...string) {
@@ -18,10 +17,12 @@ func AnalyzeAssertionFrequency() {
 
 func Until(_ int) iter.Seq[int] {
 	return func(yield func(int) bool) {
+		iteration := 0
 		for {
 			if !yield(iteration) {
 				return
 			}
+			iteration++
 		}
 	}
 }
@@ -45,19 +46,4 @@ func AlwaysErrIs(actual error, targets []error, msg string) {
 }
 
 func AlwaysErrIsNot(actual error, targets []error, msg string) {
-}
-
-func XSometimes(ok func() bool, msg string) {
-}
-
-func XAlways(fn func() bool, msg string) {
-}
-
-func XAlwaysNil(fn func() any, msg string) {
-}
-
-func XAlwaysErrIs(fn func() error, targets []error, msg string) {
-}
-
-func XAlwaysErrIsNot(fn func() error, targets []error, msg string) {
 }

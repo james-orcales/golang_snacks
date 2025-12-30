@@ -3,11 +3,10 @@ package invariant
 import (
 	"fmt"
 	"iter"
-	"math/rand/v2"
 	"os"
-	"path"
-	"runtime"
 	"strings"
+	"testing"
+
 	"github.com/james-orcales/golang_snacks/xdebug"
 )
 
@@ -24,13 +23,54 @@ const (
 	AssertionFailureMsgPrefix = "🚨 Assertion Failure 🚨"
 )
 
+// TODO: AssertionFailure recover helper function
+
 var (
 	// msg is already prefixed with AssertionFailurePrefix here. If the user msg is empty then
 	// it also contains emptyMessageIndicator.
 	AssertionFailureHook    = func(msg string) {}
-	AssertionFailureIsFatal = false
 	AssertionFailureIsFatal = true
+
+	IsRunningUnderGoTest = func() bool {
+		v := false
+		for _, arg := range os.Args {
+			if strings.HasPrefix(arg, "-test.") {
+				v = true
+				break
+			}
+		}
+		return v
+	}()
+
+	IsRunningUnderGoFuzz = func() bool {
+		v := false
+		for _, arg := range os.Args {
+			if strings.HasPrefix(arg, "-test.fuzz") {
+				v = true
+				break
+			}
+		}
+		return v
+	}()
+
+	IsRunningUnderGoBenchmark = func() bool {
+		v := false
+		for _, arg := range os.Args {
+			if strings.HasPrefix(arg, "-test.bench") {
+				v = true
+				break
+			}
+		}
+		return v
+	}()
 )
+
+func RunTestMain(m *testing.M, dirs ...string) {
+	RegisterPackagesForAnalysis(dirs...)
+	code := m.Run()
+	AnalyzeAssertionFrequency()
+	os.Exit(code)
+}
 
 // WARN: Callers rely on this callback to implicitly terminate control flow on failure (via
 // panic or os.Exit).
@@ -45,39 +85,8 @@ func assertionFailureCallback(msg string) {
 	}
 }
 
-var IsRunningUnderGoTest = func() bool {
-	v := false
-	for _, arg := range os.Args {
-		if strings.HasPrefix(arg, "-test.") {
-			v = true
-			break
-		}
-	}
-	return v
-}()
-
-var IsRunningUnderGoFuzz = func() bool {
-	v := false
-	for _, arg := range os.Args {
-		if strings.HasPrefix(arg, "-test.fuzz") {
-			v = true
-			break
-		}
-	}
-	return v
-}()
-
-var IsRunningUnderGoBenchmark = func() bool {
-	v := false
-	for _, arg := range os.Args {
-		if strings.HasPrefix(arg, "-test.bench") {
-			v = true
-			break
-		}
-	}
-	return v
-}()
-
+// The same as Always but is enabled regardless of any build tag provided.
+//
 //go:noinline
 func Ensure(cond bool, msg string) {
 	if cond {
@@ -105,19 +114,4 @@ func GameLoop() iter.Seq[int] {
 			}
 		}
 	}
-}
-
-// InjectFault randomly triggers a fault for testing purposes, based on the given percentage.
-// Only active when running under Go fuzzing (`IsRunningUnderGoFuzz`).
-//
-// Example usage:
-//
-//	err := fallible()
-//	if err != nil || invariant.InjectFault(30) {
-//	    handleError()
-//	}
-//
-// The `percent` argument specifies the probability (0–100) that a fault is injected.
-func InjectFault(percent int) bool {
-	return IsRunningUnderGoFuzz && rand.IntN(100) < percent
 }

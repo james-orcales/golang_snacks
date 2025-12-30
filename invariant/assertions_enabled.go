@@ -13,29 +13,26 @@ encode and enforce assumptions (invariants) directly within your code.
    - **Sometimes** — The property is expected to be *occasionally true* across
      runs. To prove a Sometimes assertion, you need *one example* where the
      condition is true. If it never evaluates to true, the property is disproven.
-     Sometimes assertions are only meaningful in testing environments, since
-     observing their absence requires multiple executions of the program.
-
+     Observing its absence requires a program context where all expected states
+     to be consistently exercised—which is only feasible in testing environments.
 
 # Implementation
 
-In production, assertions immediately crash the program on violation.
+In production, assertions panic/crash on violation.
 In test environments, invariant activates a global tracker that records every
 assertion that evaluated to true.
 
-During setup, you register the packages to analyze (usually just the current
-test’s target package). As tests execute, successful assertions (true
-evaluations) are recorded in a package-global tracker keyed by file and line
-number. After all tests finish, the analyzer then parses all Go files in the
-registered packages and locates every assertion in the source. It’s crucial that
-the package qualifier name remains `invariant`, since the parser relies on this
-identifier to detect assertions.
+Before tests run, you register the packages to analyze (usually just the current
+test’s target package). The parser locates all assertions within said package
+then pre-registers them in the tracker. As tests execute, successful assertions
+(true evaluations) are recorded in a package-global tracker keyed by file and line
+number. It’s crucial that the package qualifier name remains `invariant`, since
+the parser relies on this identifier to detect assertions.
 
 Next, the analyzer cross-references parsed assertions with those observed at
 runtime. Any assertion that never evaluated to true (frequency = 0) is reported
 as a “missed invariant,” causing the test suite to fail. If all assertions were
-exercised, the analyzer prints a summary showing up to 20 of the *least
-exercised* assertions.
+exercised, the analyzer prints a summary showing the *least exercised* assertions.
 
 Invariant therefore provides actionable, frequency-based insight into how
 thoroughly your properties have been exercised, revealing the true scope and
@@ -64,7 +61,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"testing"
 )
 
 const (
@@ -72,8 +68,8 @@ const (
 	// slices. These values determine the size of those arrays and should accommodate typical
 	// codebases without frequent resizing.
 	leastExercisedInvariantCount = 10
-	// maxAssertionsPerPackage is the maximum number of Sometimes, XSometimes, Always*, and
-	// XAlways* calls in a single package.
+	// maxAssertionsPerPackage is the maximum number of Sometimes, XSometimes, Always*,
+	// XAlways*, and Ensure calls in a single package.
 	maxAssertionsPerPackage = 2048
 	maxGoFilesPerPackage    = 1024
 	maxFilePath             = 260
@@ -93,13 +89,6 @@ type metadata struct {
 	Frequency int
 	Message   string
 	Kind      string
-}
-
-func RunTestMain(m *testing.M, dirs ...string) {
-	RegisterPackagesForAnalysis(dirs...)
-	code := m.Run()
-	AnalyzeAssertionFrequency()
-	os.Exit(code)
 }
 
 // registerAssertion records in the package-global assertion tracker that an
@@ -138,11 +127,25 @@ func registerAssertion() {
 // RegisterPackagesForAnalysis ensures that only assertions from the tested
 // directories are tracked for frequency analysis. Dirs is relative to the
 // directory of the caller.
+//
 // NOTE: All assertions must have their last parameter be the message parameter
+//
+// NOTE: During fuzzing or benchmarking, assertion tracking is disabled because
+// worker processes handle assertions in separate memory spaces. Any registrations
+// done there are not synchronized back to the parent test runner
+//
+// NOTE: Tracking assertions during fuzzing can help gauge how thoroughly your fuzzer exercises the code.
+// However, since this implementation tracks assertions at the package level—and most fuzz tests
+// focus on specific functions—this is generally sufficient. Full assertion tracking is mainly
+// useful when simulating the entire program; in that case, using a dedicated script, unit test,
+// or custom fuzz harness is more appropriate.
+//
+// PERF: Create an instrumentation tool that hardcodes assertion source location, drastically
+// improving registration performance at runtime. This enables assertion tracking in fuzz testing.
 func RegisterPackagesForAnalysis(dirs ...string) {
 	Always(IsRunningUnderGoTest, "RegisterPackagesForAnalysis is only used in testing environments")
 	Always(len(packagesToAnalyze) == 1 && packagesToAnalyze[0] == ".", "packagesToAnalyze was set to the current testing package by default")
-	if IsRunningUnderGoBenchmark {
+	if IsRunningUnderGoBenchmark || IsRunningUnderGoFuzz {
 		return
 	}
 	if len(dirs) > 0 {
@@ -287,7 +290,7 @@ func AnalyzeAssertionFrequency() {
 		os.Exit(1)
 	}
 
-	// ===Analysis===
+	// === Analysis ===
 	//
 	// This is a very simple and “dumb” analysis based solely on absolute
 	// assertion frequency. It does not attempt to correlate assertions with
@@ -506,88 +509,3 @@ func Unimplemented(msg string) {
 func Unreachable(msg string) {
 	assertionFailureCallback(fmt.Sprintf("%s: %s\n", AssertionFailureMsgPrefix, msg))
 }
-
-/*
-XAlways evaluates fn and calls assertionFailureCallback if it returns false. It
-is designed for use cases where you want to perform expensive validations that
-can be disabled in production builds using the `disable_assertions`
-build tag.
-
-	expensiveFn := func() bool { ... }
-	// expensiveFn is still evaluated but boolean check is a noop under disable_assertions
-	invariant.Always(expensiveFn())
-
-
-	// expensiveFn itself will be a noop under disable_assertions
-	invariant.XAlways(expensiveFn)
-
-Be wary of this if you rely on side effects produced by fn. Rule of thumb would
-be to ensure that fn is pure or idempotent.
-*/
-//go:noinline
-func XAlways(fn func() bool, msg string) {
-	if fn() {
-		registerAssertion()
-	} else {
-		assertionFailureCallback(fmt.Sprintf("%s: %s\n", AssertionFailureMsgPrefix, msg))
-	}
-}
-
-//go:noinline
-func XSometimes(fn func() bool, msg string) {
-	if !IsRunningUnderGoTest || !fn() {
-		return
-	}
-	registerAssertion()
-}
-
-// XAlwaysNil evaluates fn and calls assertionFailureCallback if the result is not nil.
-//
-//go:noinline
-func XAlwaysNil(fn func() interface{}, msg string) {
-	x := fn()
-	if x == nil {
-		registerAssertion()
-	} else {
-		assertionFailureCallback(fmt.Sprintf("%s: expected nil. got %v. %s\n", AssertionFailureMsgPrefix, x, msg))
-	}
-}
-
-// XAlwaysErrIs evaluates fn and calls assertionFailureCallback if the returned error is not in targets.
-//
-//go:noinline
-func XAlwaysErrIs(fn func() error, targets []error, msg string) {
-	Always(len(targets) > 0, "invariant.XAlwaysErrIs requires at least one target")
-	for _, t := range targets {
-		Always(t != nil, "All invariant.XAlwaysErrIs targets must not be nil")
-	}
-	actual := fn()
-	for _, t := range targets {
-		if errors.Is(actual, t) {
-			registerAssertion()
-			return
-		}
-	}
-	assertionFailureCallback(fmt.Sprintf("%s: error did not match any targets. got %q. %s\n", AssertionFailureMsgPrefix, actual, msg))
-}
-
-// XAlwaysErrIsNot evaluates fn and calls assertionFailureCallback if the returned error matches any target.
-//
-//go:noinline
-func XAlwaysErrIsNot(fn func() error, targets []error, msg string) {
-	Always(len(targets) > 0, "invariant.XAlwaysErrIsNot requires at least one target")
-	for _, t := range targets {
-		Always(t != nil, "All invariant.XAlwaysErrIsNot targets must not be nil")
-	}
-	actual := fn()
-	for _, t := range targets {
-		if errors.Is(actual, t) {
-			assertionFailureCallback(fmt.Sprintf("error unexpectedly matched a target. got %q. %s\n", actual, msg))
-			return
-		}
-	}
-	registerAssertion()
-}
-
-// TODO: func RandomInt
-
