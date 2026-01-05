@@ -29,7 +29,7 @@ var (
 	// msg is already prefixed with AssertionFailurePrefix here. If the user msg is empty then
 	// it also contains emptyMessageIndicator.
 	AssertionFailureHook    = func(msg string) {}
-	AssertionFailureIsFatal = true
+	AssertionFailureIsFatal = false
 
 	IsRunningUnderGoTest = func() bool {
 		v := false
