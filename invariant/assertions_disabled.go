@@ -15,7 +15,12 @@ func RegisterPackagesForAnalysis(dirs ...string) {
 func AnalyzeAssertionFrequency() {
 }
 
-func Until(_ int) iter.Seq[int] {
+type _Number interface {
+	~int | ~int8 | ~int16 | ~int32 | ~int64 |
+		~uint | ~uint8 | ~uint16 | ~uint32 | ~uint64
+}
+
+func Until[T _Number](_ T) iter.Seq[T] {
 	return func(yield func(int) bool) {
 		iteration := 0
 		for {

@@ -462,6 +462,11 @@ func AlwaysErrIsNot(actual error, targets []error, msg string) {
 	registerAssertion()
 }
 
+type _Number interface {
+	~int | ~int8 | ~int16 | ~int32 | ~int64 |
+		~uint | ~uint8 | ~uint16 | ~uint32 | ~uint64
+}
+
 // Until returns a bounded sequence useful for safely constraining infinite loops.
 // If the break condition never evaluates, the loop panics on the final iteration.
 // Under "disable_assertions", the loop still runs but runaway loops are undetected.
@@ -485,9 +490,10 @@ func AlwaysErrIsNot(actual error, targets []error, msg string) {
 //	}
 //
 //go:noinline
-func Until(limit int) iter.Seq[int] {
+func Until[T _Number](limit T) iter.Seq[int] {
 	Always(limit > 0, "Loop bound is a positive integer")
 	return func(yield func(int) bool) {
+		limit := int(limit)
 		for iteration := range limit {
 			if iteration == limit-1 {
 				assertionFailureCallback("Runaway loop!")
