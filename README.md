@@ -1,5 +1,8 @@
 # golang_snacks
 
+> [!NOTE]
+> This library has been moved over to my monorepo https://github.com/james-orcales/james-orcales
+
 golang_snacks is a collection of libraries to extend the standard library with an emphasis on robust
 testing methodologies. Most importantly, it features a deterministic simulation testing framework.
 These libraries natively integrate with the testing framework ensuring a robust third-party
